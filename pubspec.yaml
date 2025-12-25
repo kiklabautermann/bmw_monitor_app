@@ -1,0 +1,28 @@
+name: obd2app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path_provider: ^2.1.1
+  path: ^1.8.3
+  url_launcher: ^6.1.11
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Füge diese Zeilen hinzu (achte EXAKT auf die Einrückung von 2 Leerzeichen!)
+  assets:
+    - assets/mlogo.png
+    - assets/models.json
+    - assets/dtc_codes.json
