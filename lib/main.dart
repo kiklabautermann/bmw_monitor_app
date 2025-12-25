@@ -13,6 +13,48 @@ void main() {
   runApp(const BMWMonitorApp());
 }
 
+class DashboardLayout {
+  final GaugeConfig leftGauge;
+  final GaugeConfig rightGauge;
+
+  DashboardLayout({required this.leftGauge, required this.rightGauge});
+
+  factory DashboardLayout.fromJson(Map<String, dynamic> json) {
+    return DashboardLayout(
+      leftGauge: GaugeConfig.fromJson(json['leftGauge'] ?? {}),
+      rightGauge: GaugeConfig.fromJson(json['rightGauge'] ?? {}),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'leftGauge': leftGauge.toJson(),
+      'rightGauge': rightGauge.toJson(),
+    };
+  }
+}
+
+class GaugeConfig {
+  final String mainParamId;
+  final String? subParamId; // null means "None" - single gauge mode
+
+  GaugeConfig({required this.mainParamId, this.subParamId});
+
+  factory GaugeConfig.fromJson(Map<String, dynamic> json) {
+    return GaugeConfig(
+      mainParamId: json['mainParamId'] ?? 'boost',
+      subParamId: json['subParamId'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'mainParamId': mainParamId,
+      'subParamId': subParamId,
+    };
+  }
+}
+
 class DisplayParam {
   final String id;
   final String label;
@@ -22,11 +64,12 @@ class DisplayParam {
   final double max;
   final Color color;
   final bool showRedZone;
+  final DisplayParam? secondaryParam;
 
   DisplayParam({
     required this.id, required this.label, required this.unit,
-    required this.did, required this.min, required this.max, 
-    required this.color, this.showRedZone = false,
+    required this.did, required this.min, required this.max,
+    required this.color, this.showRedZone = false, this.secondaryParam,
   });
 
   double decode(Uint8List data) {
@@ -43,16 +86,20 @@ class DisplayParam {
         int hpa = (data[0] << 8) | data[1];
         double bar = (hpa - 1013) / 1000.0;
         return bar < 0 ? 0.0 : bar;
+      case 'throttle':
+        return data[0].toDouble();
       default: return 0.0;
     }
   }
 
   static List<DisplayParam> available = [
+    DisplayParam(id: 'none', label: "KEINE ANZEIGE", unit: "", did: "", min: 0, max: 0, color: Colors.grey),
     DisplayParam(id: 'oil_temp', label: "OIL TEMP", unit: "°C", did: "F45C", min: 60, max: 160, color: Colors.orange, showRedZone: true),
-    DisplayParam(id: 'boost', label: "BOOST", unit: "BAR", did: "D906", min: 0, max: 2.0, color: Colors.blue),
+    DisplayParam(id: 'boost', label: "BOOST", unit: "BAR", did: "D906", min: 0, max: 2.0, color: Colors.blue, secondaryParam: DisplayParam(id: 'iat', label: "IAT", unit: "°C", did: "F40F", min: 0, max: 100, color: Colors.cyan)),
     DisplayParam(id: 'timing_all', label: "TIMING", unit: "°KW", did: "D011", min: -10, max: 0, color: Colors.red),
     DisplayParam(id: 'coolant', label: "WATER", unit: "°C", did: "F405", min: 60, max: 160, color: Colors.blueAccent, showRedZone: true),
     DisplayParam(id: 'iat', label: "INTAKE", unit: "°C", did: "F40F", min: 0, max: 100, color: Colors.cyan),
+    DisplayParam(id: 'throttle', label: "THROTTLE", unit: "%", did: "F40E", min: 0, max: 100, color: Colors.green),
   ];
 }
 
@@ -79,12 +126,61 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   double gaugeValueRight = 0.0;
   double peakLeft = 0.0;
   double peakRight = 0.0;
+  double secondaryValueLeft = 0.0;
+  double secondaryValueRight = 0.0;
   List<double> cylinderCorrections = List.filled(6, 0.0);
   double worstTimingCorrection = 0.0;
   int worstCylinder = 0;
 
-  DisplayParam leftParam = DisplayParam.available[0];
-  DisplayParam rightParam = DisplayParam.available[2];
+  // Battery saving and polling optimization
+  int _tickCounter = 0;
+  bool isBatterySaveMode = false;
+  int _zeroRpmCounter = 0;
+  double lastRpmValue = 0.0;
+
+  // Data categorization
+  static const List<String> thermalDids = ['F45C', 'F405', 'F40F', 'F460']; // Thermal class (slow)
+  static const String rpmDid = 'F40C'; // RPM for battery saving detection
+
+  // Gauge configuration with preset management
+  DashboardLayout currentLayout = DashboardLayout(
+    leftGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat'),
+    rightGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: null)
+  );
+
+  // Preset management
+  Map<String, DashboardLayout> presets = {
+    'Performance': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat'),
+      rightGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: 'coolant')
+    ),
+    'Track': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'oil_temp', subParamId: 'coolant'),
+      rightGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat')
+    ),
+    'Tuner': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: 'throttle'),
+      rightGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat')
+    ),
+    'User 1': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat'),
+      rightGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: null)
+    ),
+    'User 2': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat'),
+      rightGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: null)
+    ),
+    'User 3': DashboardLayout(
+      leftGauge: GaugeConfig(mainParamId: 'boost', subParamId: 'iat'),
+      rightGauge: GaugeConfig(mainParamId: 'timing_all', subParamId: null)
+    ),
+  };
+
+  // Derived parameters from config
+  DisplayParam get leftParam => DisplayParam.available.firstWhere((p) => p.id == currentLayout.leftGauge.mainParamId, orElse: () => DisplayParam.available[0]);
+  DisplayParam get rightParam => DisplayParam.available.firstWhere((p) => p.id == currentLayout.rightGauge.mainParamId, orElse: () => DisplayParam.available[2]);
+  DisplayParam? get leftSecondaryParam => currentLayout.leftGauge.subParamId != null ? DisplayParam.available.firstWhere((p) => p.id == currentLayout.leftGauge.subParamId) : null;
+  DisplayParam? get rightSecondaryParam => currentLayout.rightGauge.subParamId != null ? DisplayParam.available.firstWhere((p) => p.id == currentLayout.rightGauge.subParamId) : null;
 
   bool isConnected = false;
   bool isDiscovering = false;
@@ -126,8 +222,26 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         setState(() {
           adapterIp = json['ip'] ?? "192.168.16.103";
           doipPort = json['port'] ?? 13400;
-          leftParam = DisplayParam.available.firstWhere((p) => p.id == json['left_id'], orElse: () => DisplayParam.available[0]);
-          rightParam = DisplayParam.available.firstWhere((p) => p.id == json['right_id'], orElse: () => DisplayParam.available[2]);
+          // Load current layout with backward compatibility
+          currentLayout = DashboardLayout(
+            leftGauge: GaugeConfig(
+              mainParamId: json['left_id'] ?? 'boost',
+              subParamId: json['left_sub_id'],
+            ),
+            rightGauge: GaugeConfig(
+              mainParamId: json['right_id'] ?? 'timing_all',
+              subParamId: json['right_sub_id'],
+            ),
+          );
+          // Load user presets if they exist
+          if (json['user_presets'] != null) {
+            final userPresetsJson = json['user_presets'] as Map<String, dynamic>;
+            userPresetsJson.forEach((key, value) {
+              if (presets.containsKey(key)) {
+                presets[key] = DashboardLayout.fromJson(value);
+              }
+            });
+          }
         });
       }
     } catch (_) {}
@@ -135,8 +249,21 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
   Future<void> _saveSettings() async {
     final file = await _getSettingsFile();
+    // Save user presets (User 1, User 2, User 3)
+    final userPresets = {
+      'User 1': presets['User 1']!.toJson(),
+      'User 2': presets['User 2']!.toJson(),
+      'User 3': presets['User 3']!.toJson(),
+    };
+
     await file.writeAsString(jsonEncode({
-      'ip': adapterIp, 'port': doipPort, 'left_id': leftParam.id, 'right_id': rightParam.id
+      'ip': adapterIp,
+      'port': doipPort,
+      'left_id': currentLayout.leftGauge.mainParamId,
+      'left_sub_id': currentLayout.leftGauge.subParamId,
+      'right_id': currentLayout.rightGauge.mainParamId,
+      'right_sub_id': currentLayout.rightGauge.subParamId,
+      'user_presets': userPresets,
     }));
   }
 
@@ -147,7 +274,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       RawDatagramSocket udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       udpSocket.broadcastEnabled = true;
       udpSocket.send(Uint8List.fromList([0x02, 0xFD, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]), InternetAddress("255.255.255.255"), 13400);
-      
+
       udpSocket.listen((RawSocketEvent event) {
         if (event == RawSocketEvent.read) {
           Datagram? dg = udpSocket.receive();
@@ -351,28 +478,62 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       await _loadVehicleModels();
       await _requestVehicleIdentification();
 
-      int pollStep = 0;
-      _pollingTimer = Timer.periodic(const Duration(milliseconds: 120), (timer) {
+      // Reset counters
+      _tickCounter = 0;
+      _zeroRpmCounter = 0;
+      isBatterySaveMode = false;
+
+      // Optimized polling with fast/slow categorization and battery saving
+      _pollingTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
         if (_socket == null) return;
-        if (pollStep == 0) _sendRequest(leftParam.did);
-        else if (pollStep == 1) _sendRequest(rightParam.did);
-        else {
-          // Calculate cylinder index (0-based)
-          int cylinderIndex = pollStep - 2;
+        _tickCounter++;
 
-          // For 4-cylinder engines, skip cylinders 4 and 5 (which would be cylinders 5 and 6)
-          if (cylinderCount == 4 && cylinderIndex >= 4) {
-            // Skip to the next valid step
-            pollStep = (pollStep + 1) % (cylinderCount + 2);
-            return;
-          }
-
-          // Send request for current cylinder
-          _sendRequest("D0${11 + cylinderIndex}");
+        // Battery-Saving Check: If in battery save mode, only poll every 5 seconds (50 ticks)
+        if (isBatterySaveMode && _tickCounter % 50 != 0) {
+          return;
         }
 
-        // Always increment pollStep and wrap around based on cylinder count
-        pollStep = (pollStep + 1) % (cylinderCount + 2);
+        // Fast data (real-time) - every tick (100ms)
+        // Left gauge fast data
+        if (!thermalDids.contains(leftParam.did)) {
+          _sendRequest(leftParam.did);
+        }
+        if (leftSecondaryParam != null && !thermalDids.contains(leftSecondaryParam!.did)) {
+          _sendRequest(leftSecondaryParam!.did);
+        }
+
+        // Right gauge fast data
+        if (!thermalDids.contains(rightParam.did)) {
+          _sendRequest(rightParam.did);
+        }
+        if (rightSecondaryParam != null && !thermalDids.contains(rightSecondaryParam!.did)) {
+          _sendRequest(rightSecondaryParam!.did);
+        }
+
+        // Timing correction (round-robin, one cylinder per tick)
+        _sendRequest("D0${11 + (_tickCounter % cylinderCount)}");
+
+        // Thermal data (slow) - every 10 ticks (1 second)
+        if (_tickCounter % 10 == 0) {
+          // Left gauge thermal data
+          if (thermalDids.contains(leftParam.did)) {
+            _sendRequest(leftParam.did);
+          }
+          if (leftSecondaryParam != null && thermalDids.contains(leftSecondaryParam!.did)) {
+            _sendRequest(leftSecondaryParam!.did);
+          }
+
+          // Right gauge thermal data
+          if (thermalDids.contains(rightParam.did)) {
+            _sendRequest(rightParam.did);
+          }
+          if (rightSecondaryParam != null && thermalDids.contains(rightSecondaryParam!.did)) {
+            _sendRequest(rightSecondaryParam!.did);
+          }
+
+          // RPM for battery saving detection
+          _sendRequest(rpmDid);
+        }
       });
     } catch (e) { setState(() => statusText = "FAILED"); _disconnect(); }
   }
@@ -397,9 +558,45 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         _processVinResponse(data);
       }
 
+      // Handle RPM response for battery saving detection
+      if (rDid == rpmDid) {
+        // RPM is stored as 2 bytes (little endian)
+        if (pld.length >= 2) {
+          int rpm = (pld[1] << 8) | pld[0];
+          lastRpmValue = rpm.toDouble();
+
+          // Battery saving logic: Check if engine is off (RPM = 0)
+          if (rpm == 0) {
+            _zeroRpmCounter++;
+            // Enter battery save mode after 30 seconds of RPM = 0
+            if (_zeroRpmCounter >= 300 && !isBatterySaveMode) {
+              setState(() {
+                isBatterySaveMode = true;
+                statusText = "BATTERY SAVE MODE";
+              });
+            }
+          } else {
+            // Engine is running, reset counter and exit battery save mode
+            _zeroRpmCounter = 0;
+            if (isBatterySaveMode) {
+              setState(() {
+                isBatterySaveMode = false;
+                statusText = "CONNECTED";
+              });
+            }
+          }
+        }
+      }
+
       setState(() {
         if (rDid == leftParam.did) { gaugeValueLeft = leftParam.decode(pld); if (gaugeValueLeft > peakLeft) peakLeft = gaugeValueLeft; }
         else if (rDid == rightParam.did) { gaugeValueRight = rightParam.decode(pld); if (gaugeValueRight > peakRight) peakRight = gaugeValueRight; }
+        else if (leftParam.secondaryParam != null && rDid == leftParam.secondaryParam!.did) {
+          secondaryValueLeft = leftParam.secondaryParam!.decode(pld);
+        }
+        else if (rightParam.secondaryParam != null && rDid == rightParam.secondaryParam!.did) {
+          secondaryValueRight = rightParam.secondaryParam!.decode(pld);
+        }
         else if (rDid.startsWith("D01")) {
           int idx = int.parse(rDid.substring(3)) - 1;
           double cr = (pld[0] - 128) * 0.1;
@@ -430,16 +627,271 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   void _showSettings() {
-    showDialog(context: context, builder: (context) => AlertDialog(
-      title: const Text("Settings"),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(decoration: const InputDecoration(labelText: "IP"), controller: TextEditingController(text: adapterIp), onChanged: (v) => adapterIp = v),
-        ElevatedButton(onPressed: () { Navigator.pop(context); _discoverAdapter(); }, child: const Text("Auto-Discover (UDP)")),
-        DropdownButtonFormField<String>(value: leftParam.id, items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(), onChanged: (id) => setState(() => leftParam = DisplayParam.available.firstWhere((p) => p.id == id))),
-        DropdownButtonFormField<String>(value: rightParam.id, items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(), onChanged: (id) => setState(() => rightParam = DisplayParam.available.firstWhere((p) => p.id == id))),
-      ])),
-      actions: [TextButton(onPressed: () { _saveSettings(); Navigator.pop(context); }, child: const Text("Save & Close"))],
-    ));
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+            maxWidth: MediaQuery.of(context).size.width * 0.95,
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Settings", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Connection Settings
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Connection", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          decoration: const InputDecoration(
+                            labelText: "IP Address",
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          controller: TextEditingController(text: adapterIp),
+                          onChanged: (v) => adapterIp = v,
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () { Navigator.pop(context); _discoverAdapter(); },
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                            child: const Text("Auto-Discover (UDP)"),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Left Gauge Configuration
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Left Gauge Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonFormField<String>(
+                                value: currentLayout.leftGauge.mainParamId,
+                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
+                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                  leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
+                                  rightGauge: currentLayout.rightGauge
+                                ))
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonFormField<String?>(
+                                value: currentLayout.leftGauge.subParamId,
+                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                items: [
+                                  const DropdownMenuItem(value: null, child: Text("KEINE SUB-ANZEIGE")),
+                                  ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
+                                ],
+                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                  leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
+                                  rightGauge: currentLayout.rightGauge
+                                ))
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Right Gauge Configuration
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Right Gauge Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonFormField<String>(
+                                value: currentLayout.rightGauge.mainParamId,
+                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
+                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                  leftGauge: currentLayout.leftGauge,
+                                  rightGauge: GaugeConfig(mainParamId: id ?? 'timing_all', subParamId: currentLayout.rightGauge.subParamId)
+                                ))
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonFormField<String?>(
+                                value: currentLayout.rightGauge.subParamId,
+                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                items: [
+                                  const DropdownMenuItem(value: null, child: Text("KEINE SUB-ANZEIGE")),
+                                  ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
+                                ],
+                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                  leftGauge: currentLayout.leftGauge,
+                                  rightGauge: GaugeConfig(mainParamId: currentLayout.rightGauge.mainParamId, subParamId: id)
+                                ))
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Quick Load Presets
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Quick Load Presets", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () { setState(() { currentLayout = presets['Performance']!; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                              child: const Text("Performance"),
+                            ),
+                            ElevatedButton(
+                              onPressed: () { setState(() { currentLayout = presets['Track']!; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                              child: const Text("Track"),
+                            ),
+                            ElevatedButton(
+                              onPressed: () { setState(() { currentLayout = presets['Tuner']!; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                              child: const Text("Tuner"),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Save to User Presets
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Save Current Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () { setState(() { presets['User 1'] = currentLayout; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                              child: const Text("Save to User 1"),
+                            ),
+                            ElevatedButton(
+                              onPressed: () { setState(() { presets['User 2'] = currentLayout; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                              child: const Text("Save to User 2"),
+                            ),
+                            ElevatedButton(
+                              onPressed: () { setState(() { presets['User 3'] = currentLayout; }); },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                              child: const Text("Save to User 3"),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // User Preset Management
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("User Preset Management", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(height: 8),
+                        ...['User 1', 'User 2', 'User 3'].map((userKey) => Card(
+                          child: ListTile(
+                            title: Text(userKey),
+                            subtitle: Text("${presets[userKey]!.leftGauge.mainParamId} + ${presets[userKey]!.leftGauge.subParamId ?? 'none'} | ${presets[userKey]!.rightGauge.mainParamId} + ${presets[userKey]!.rightGauge.subParamId ?? 'none'}"),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.play_arrow, color: Colors.green),
+                              tooltip: "Load $userKey",
+                              onPressed: () => setState(() => currentLayout = presets[userKey]!),
+                            ),
+                          ),
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () { Navigator.pop(context); },
+                      child: const Text("Cancel"),
+                    ),
+                    const SizedBox(width: 16),
+                    ElevatedButton(
+                      onPressed: () { _saveSettings(); Navigator.pop(context); },
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: const Text("Save & Apply"),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showDiagnosisDialog() {
@@ -614,7 +1066,19 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
   Widget _buildTile(DisplayParam p, double val, double peak) {
     if (p.id == 'timing_all') return HorizontalTimingChart(corrections: cylinderCorrections, min: p.min, cylinderCount: cylinderCount);
-    return MGauge(value: val, peakValue: peak, param: p);
+
+    // Determine which gauge config this corresponds to
+    GaugeConfig gaugeConfig;
+    double? secondaryValue;
+    if (p == leftParam) {
+      gaugeConfig = currentLayout.leftGauge;
+      secondaryValue = secondaryValueLeft;
+    } else {
+      gaugeConfig = currentLayout.rightGauge;
+      secondaryValue = secondaryValueRight;
+    }
+
+    return MGauge(value: val, peakValue: peak, param: p, gaugeConfig: gaugeConfig, secondaryValue: secondaryValue);
   }
 }
 
@@ -645,7 +1109,9 @@ class HorizontalTimingChart extends StatelessWidget {
 class MGauge extends StatelessWidget {
   final double value, peakValue;
   final DisplayParam param;
-  const MGauge({super.key, required this.value, required this.peakValue, required this.param});
+  final GaugeConfig gaugeConfig;
+  final double? secondaryValue;
+  const MGauge({super.key, required this.value, required this.peakValue, required this.param, required this.gaugeConfig, this.secondaryValue});
 
   @override
   Widget build(BuildContext context) {
@@ -655,11 +1121,31 @@ class MGauge extends StatelessWidget {
         Text(param.label, style: TextStyle(fontSize: size * 0.07, fontWeight: FontWeight.bold, color: Colors.grey[400])),
         SizedBox(height: size * 0.05),
         Stack(alignment: Alignment.center, children: [
-          CustomPaint(size: Size(size, size), painter: GaugePainter(value: value, peakValue: peakValue, min: param.min, max: param.max, needleColor: param.color, showRedZone: param.showRedZone)),
-          Positioned(bottom: size * 0.22, child: Column(children: [
-            Text(param.max > 5 ? value.toInt().toString() : value.toStringAsFixed(2), style: TextStyle(fontSize: size * 0.2, fontWeight: FontWeight.bold)),
-            Text(param.unit, style: TextStyle(fontSize: size * 0.07, color: Colors.grey)),
-          ]))
+          CustomPaint(size: Size(size, size), painter: GaugePainter(
+            value: value,
+            peakValue: peakValue,
+            min: param.min,
+            max: param.max,
+            needleColor: param.color,
+            showRedZone: param.showRedZone,
+            gaugeConfig: gaugeConfig,
+            secondaryValue: secondaryValue
+          )),
+          Positioned(
+            bottom: gaugeConfig.subParamId != null ? size * 0.22 : size * 0.28,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(param.max > 5 ? value.toInt().toString() : value.toStringAsFixed(2), style: TextStyle(fontSize: size * 0.2, fontWeight: FontWeight.bold)),
+                Text(param.unit, style: TextStyle(fontSize: size * 0.07, color: Colors.grey)),
+                if (gaugeConfig.subParamId != null && secondaryValue != null) ...[
+                  SizedBox(height: size * 0.03),
+                  Text("${DisplayParam.available.firstWhere((p) => p.id == gaugeConfig.subParamId).label}: ${DisplayParam.available.firstWhere((p) => p.id == gaugeConfig.subParamId).max > 5 ? secondaryValue!.toInt().toString() : secondaryValue!.toStringAsFixed(1)}${DisplayParam.available.firstWhere((p) => p.id == gaugeConfig.subParamId).unit}",
+                    style: TextStyle(fontSize: size * 0.06, color: Colors.grey[400])),
+                ]
+              ]
+            )
+          )
         ])
       ]);
     });
@@ -670,7 +1156,9 @@ class GaugePainter extends CustomPainter {
   final double value, peakValue, min, max;
   final Color needleColor;
   final bool showRedZone;
-  GaugePainter({required this.value, required this.peakValue, required this.min, required this.max, required this.needleColor, required this.showRedZone});
+  final GaugeConfig gaugeConfig;
+  final double? secondaryValue;
+  GaugePainter({required this.value, required this.peakValue, required this.min, required this.max, required this.needleColor, required this.showRedZone, required this.gaugeConfig, this.secondaryValue});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -713,7 +1201,93 @@ class GaugePainter extends CustomPainter {
     final angle = (math.pi * 0.85) + (((value - min) / (max - min)).clamp(0.0, 1.0) * math.pi * 1.3);
     canvas.drawLine(Offset(center.dx + 3.0, center.dy + 3.0), Offset(center.dx + (radius * 0.8) * math.cos(angle) + 3.0, center.dy + (radius * 0.8) * math.sin(angle) + 3.0), Paint()..color = Colors.black.withOpacity(0.5)..strokeWidth = 4..strokeCap = StrokeCap.round);
     canvas.drawLine(center, Offset(center.dx + (radius * 0.82) * math.cos(angle), center.dy + (radius * 0.82) * math.sin(angle)), Paint()..color = needleColor..strokeWidth = 3.5..strokeCap = StrokeCap.round);
-    
+
+    // Secondary Scale (Glow Arc) - Enhanced with Ticks and Progress Bar
+    // Only draw if subParamId is not null
+    if (gaugeConfig.subParamId != null && secondaryValue != null) {
+      // Get the secondary parameter from available params
+      final secondaryParam = DisplayParam.available.firstWhere((p) => p.id == gaugeConfig.subParamId);
+
+      // Mathematical parameters for exact 6-o'clock centering
+      final secondaryArcRadius = radius * 0.65;
+      final sweepAngle = math.pi * 0.4; // ~72 degrees total width (compact)
+      final startAngle = 0.5 * math.pi - (sweepAngle / 2); // Centered at 6 o'clock (0.5 * pi)
+
+      // Calculate normalized secondary value (0.0 to 1.0)
+      final secondaryValueNormalized = ((secondaryValue! - secondaryParam.min) / (secondaryParam.max - secondaryParam.min)).clamp(0.0, 1.0);
+
+      // Draw scale ticks (5 marks: 0%, 25%, 50%, 75%, 100%)
+      final tickPaint = Paint()
+        ..color = Colors.white24
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round;
+
+      for (int i = 0; i <= 4; i++) {
+        final tickAngle = startAngle + (i / 4 * sweepAngle);
+        final tickStartRadius = secondaryArcRadius - (radius * 0.02);
+        final tickEndRadius = secondaryArcRadius + (radius * 0.02);
+
+        // Draw tick mark
+        canvas.drawLine(
+          Offset(
+            center.dx + tickStartRadius * math.cos(tickAngle),
+            center.dy + tickStartRadius * math.sin(tickAngle)
+          ),
+          Offset(
+            center.dx + tickEndRadius * math.cos(tickAngle),
+            center.dy + tickEndRadius * math.sin(tickAngle)
+          ),
+          tickPaint
+        );
+
+        // Highlight 50% mark (middle tick)
+        if (i == 2) {
+          canvas.drawLine(
+            Offset(
+              center.dx + (tickStartRadius - radius * 0.01) * math.cos(tickAngle),
+              center.dy + (tickStartRadius - radius * 0.01) * math.sin(tickAngle)
+            ),
+            Offset(
+              center.dx + (tickEndRadius + radius * 0.01) * math.cos(tickAngle),
+              center.dy + (tickEndRadius + radius * 0.01) * math.sin(tickAngle)
+            ),
+            tickPaint..color = Colors.white54..strokeWidth = 2.0
+          );
+        }
+      }
+
+      // Draw thick background track (rail)
+      final trackPaint = Paint()
+        ..color = Colors.grey[800]!.withOpacity(0.8) // Dark grey track
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = radius * 0.06
+        ..strokeCap = StrokeCap.round; // Rounded ends for OEM quality
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: secondaryArcRadius),
+        startAngle,
+        sweepAngle,
+        false,
+        trackPaint
+      );
+
+      // Draw active progress bar with glow effect
+      final progressPaint = Paint()
+        ..color = const Color(0xFF0066B1) // BMW Electric Blue for performance mode
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = radius * 0.06
+        ..strokeCap = StrokeCap.round // Rounded ends for OEM quality
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3);
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: secondaryArcRadius),
+        startAngle,
+        secondaryValueNormalized * sweepAngle,
+        false,
+        progressPaint
+      );
+    }
+
     // Center Hub
     canvas.drawCircle(center, radius * 0.1, Paint()..color = const Color(0xFF1A1A1A));
     canvas.drawCircle(center, radius * 0.08, Paint()..color = const Color(0xFF333333));
