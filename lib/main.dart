@@ -1881,7 +1881,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   Widget _buildWorstCaseBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-      color: Colors.white.withOpacity(0.05),
+      color: Colors.white.withValues(alpha: 0.05),
       child: Row(children: [
         const Icon(Icons.history, size: 14, color: Colors.grey),
         const SizedBox(width: 5),
