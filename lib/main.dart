@@ -21,6 +21,22 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
+/// Constants for ENET Adapter Configuration
+class EnetConstants {
+  static const String defaultIp = "192.168.16.254";
+  static const int defaultPort = 13400;
+  static const int connectionTimeoutMs = 3000;
+
+  // DoIP Routing Activation Request Packet
+  static const List<int> routingActivationRequest = [
+    0x02, 0xFD, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  ];
+
+  // Expected response prefix (DoIP Routing Activation Response)
+  static const List<int> routingActivationResponsePrefix = [0x02, 0xFD, 0x80, 0x02];
+}
+
 void main() {
   runApp(const MyApp());
 }
@@ -601,6 +617,12 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   bool isReadingDTCs = false;
   bool isClearingDTCs = false;
 
+  // Connection test state
+  bool isTestingConnection = false;
+  bool? connectionTestResult;
+  String connectionTestMessage = "";
+  DateTime? lastConnectionTestTime;
+
   @override
   void initState() {
     super.initState();
@@ -861,6 +883,87 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Konnte URL nicht öffnen: $url')),
       );
+    }
+  }
+
+  // --- CONNECTION TEST ---
+  /// Performs a robust connection test to the ENET adapter
+  /// Returns true if successful, false otherwise
+  Future<bool> _performConnectionTest() async {
+    try {
+      debugPrint("Starting ENET connection test...");
+
+      // Step 1: TCP Handshake - Open socket with timeout
+      final socket = await Socket.connect(
+        EnetConstants.defaultIp,
+        EnetConstants.defaultPort,
+        timeout: const Duration(milliseconds: EnetConstants.connectionTimeoutMs)
+      );
+
+      debugPrint("TCP connection established");
+
+      // Step 2: Send DoIP Routing Activation Request
+      socket.add(Uint8List.fromList(EnetConstants.routingActivationRequest));
+      debugPrint("Sent DoIP routing activation request");
+
+      // Step 3: Wait for response with timeout
+      final completer = Completer<bool>();
+      final timer = Timer(const Duration(milliseconds: 2000), () {
+        if (!completer.isCompleted) {
+          socket.destroy();
+          completer.complete(false);
+          debugPrint("Response timeout - no valid DoIP response received");
+        }
+      });
+
+      socket.listen(
+        (data) {
+          if (!completer.isCompleted) {
+            timer.cancel();
+
+            // Check if response starts with expected DoIP routing activation response prefix
+            if (data.length >= EnetConstants.routingActivationResponsePrefix.length) {
+              bool isValidResponse = true;
+              for (int i = 0; i < EnetConstants.routingActivationResponsePrefix.length; i++) {
+                if (data[i] != EnetConstants.routingActivationResponsePrefix[i]) {
+                  isValidResponse = false;
+                  break;
+                }
+              }
+
+              if (isValidResponse) {
+                debugPrint("Valid DoIP routing activation response received");
+                socket.destroy();
+                completer.complete(true);
+              } else {
+                debugPrint("Invalid response received: ${data.sublist(0, math.min(10, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");
+                socket.destroy();
+                completer.complete(false);
+              }
+            }
+          }
+        },
+        onError: (error) {
+          if (!completer.isCompleted) {
+            timer.cancel();
+            socket.destroy();
+            completer.complete(false);
+            debugPrint("Socket error during test: $error");
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            timer.cancel();
+            completer.complete(false);
+            debugPrint("Socket closed without valid response");
+          }
+        },
+      );
+
+      return await completer.future;
+    } catch (e) {
+      debugPrint("Connection test failed: $e");
+      return false;
     }
   }
 
@@ -1319,6 +1422,127 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             children: [
+                              // Connection Test Card
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Connection Test", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Connection Test Button and Status Indicator
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: ElevatedButton(
+                                              onPressed: isTestingConnection ? null : () async {
+                                                setState(() {
+                                                  isTestingConnection = true;
+                                                  connectionTestResult = null;
+                                                  connectionTestMessage = "Test läuft...";
+                                                });
+
+                                                final testResult = await _performConnectionTest();
+                                                final testTime = DateTime.now();
+
+                                                setState(() {
+                                                  isTestingConnection = false;
+                                                  connectionTestResult = testResult;
+                                                  lastConnectionTestTime = testTime;
+                                                  connectionTestMessage = testResult
+                                                    ? "Verbindung erfolgreich"
+                                                    : "Adapter nicht erreichbar. Zündung an?";
+                                                });
+
+                                                if (testResult) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text("Bimmerdash ist bereit. Steuergerät antwortet."),
+                                                      backgroundColor: Colors.green,
+                                                    ),
+                                                  );
+                                                } else {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text("Verbindungstest fehlgeschlagen."),
+                                                      backgroundColor: Colors.red,
+                                                    ),
+                                                  );
+                                                }
+                                              },
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: isTestingConnection ? Colors.grey : Colors.blue,
+                                              ),
+                                              child: isTestingConnection
+                                                ? const SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                                  )
+                                                : const Text("Verbindung testen"),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          // Status Indicator LED
+                                          Container(
+                                            width: 16,
+                                            height: 16,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: isTestingConnection
+                                                ? Colors.yellow
+                                                : connectionTestResult == null
+                                                  ? Colors.grey
+                                                  : connectionTestResult!
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              boxShadow: isTestingConnection || connectionTestResult == true
+                                                ? [
+                                                    BoxShadow(
+                                                      color: (isTestingConnection ? Colors.yellow : Colors.green).withOpacity(0.6),
+                                                      blurRadius: 8,
+                                                      spreadRadius: 2,
+                                                    ),
+                                                  ]
+                                                : null,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Status Message and Timestamp
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              connectionTestMessage,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: connectionTestResult == null
+                                                  ? Colors.grey
+                                                  : connectionTestResult!
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              ),
+                                            ),
+                                            if (lastConnectionTestTime != null)
+                                              Text(
+                                                "Letzter Test: ${lastConnectionTestTime!.hour.toString().padLeft(2, '0')}:${lastConnectionTestTime!.minute.toString().padLeft(2, '0')}",
+                                                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               Card(
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
