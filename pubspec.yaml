@@ -18,12 +18,42 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: "^0.13.1" # Das Tool zur Generierung
+  flutter_native_splash: ^2.3.1
+
+flutter_native_splash:
+  color: "#000033" # Deep navy blue background
+  image: "assets/icon/app_icon_raw.png"
+  android: true
+  ios: true
+  web: true
+  android_gravity: center
+  ios_content_mode: center
+  web_image_mode: center
+  android_12:
+    color: "#000033"
+    image: "assets/icon/app_icon_raw.png"
+    icon_background_color: "#000033"
   
 flutter_launcher_icons:
-  android: "launcher_icon"
+  android: true
   ios: true
+  linux: true
   image_path: "assets/icon/app_icon_raw.png"
-  min_sdk_android: 21 # falls nötig
+  min_sdk_android: 21
+  adaptive_icon_background: "#000033" # Deep navy blue to match icon theme
+  adaptive_icon_foreground: "assets/icon/app_icon_raw.png"
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon_raw.png"
+    background_color: "#000033"
+    theme_color: "#FF8C00"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon_raw.png"
+    icon_size: 48
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon_raw.png"
 
 flutter:
   uses-material-design: true

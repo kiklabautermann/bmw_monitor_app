@@ -113,6 +113,16 @@ class DisplayParam {
   ];
 }
 
+/// BMW-Inspired Color Scheme based on the app icon
+class BimmerdashColors {
+  static const Color deepNavyBlue = Color(0xFF000033); // Icon background
+  static const Color bmwOrange = Color(0xFFFF8C00); // Icon accent/BMW orange
+  static const Color silverGray = Color(0xFFB0B0C0); // Text and scales
+  static const Color darkSurface = Color(0xFF1A1A2E); // Cards and surfaces
+  static const Color darkGrayBlue = Color(0xFF12121A); // App bars and backgrounds
+  static const Color redZone = Color(0xFFCE1237); // Warning/red zone color
+}
+
 class BimmerdashApp extends StatelessWidget {
   const BimmerdashApp({super.key});
   @override
@@ -120,7 +130,250 @@ class BimmerdashApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Bimmerdash',
-      theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: Colors.black),
+      theme: ThemeData(
+        // Base dark theme with custom color scheme
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.dark(
+          primary: BimmerdashColors.bmwOrange,
+          secondary: BimmerdashColors.silverGray,
+          surface: BimmerdashColors.darkSurface,
+          background: BimmerdashColors.deepNavyBlue,
+          error: BimmerdashColors.redZone,
+          onPrimary: BimmerdashColors.deepNavyBlue,
+          onSecondary: BimmerdashColors.deepNavyBlue,
+          onSurface: BimmerdashColors.silverGray,
+          onBackground: BimmerdashColors.silverGray,
+          onError: BimmerdashColors.silverGray,
+        ),
+
+        // App bar theme
+        appBarTheme: AppBarTheme(
+          backgroundColor: BimmerdashColors.darkGrayBlue,
+          foregroundColor: BimmerdashColors.silverGray,
+          titleTextStyle: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+          ),
+          iconTheme: IconThemeData(color: BimmerdashColors.silverGray),
+        ),
+
+        // Card theme
+        cardTheme: CardThemeData(
+          color: BimmerdashColors.darkSurface,
+          surfaceTintColor: BimmerdashColors.bmwOrange.withOpacity(0.1),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+
+        // Button theme
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: BimmerdashColors.bmwOrange,
+            foregroundColor: BimmerdashColors.deepNavyBlue,
+            textStyle: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Roboto',
+            ),
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+
+        // Text button theme
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: BimmerdashColors.bmwOrange,
+            textStyle: TextStyle(
+              fontFamily: 'Roboto',
+            ),
+          ),
+        ),
+
+        // Dialog theme
+        dialogTheme: DialogThemeData(
+          backgroundColor: BimmerdashColors.darkSurface,
+          titleTextStyle: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Roboto',
+          ),
+          contentTextStyle: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+          ),
+        ),
+
+        // Switch theme
+        switchTheme: SwitchThemeData(
+          thumbColor: MaterialStateProperty.resolveWith<Color>((states) {
+            if (states.contains(MaterialState.selected)) {
+              return BimmerdashColors.bmwOrange;
+            }
+            return BimmerdashColors.silverGray;
+          }),
+          trackColor: MaterialStateProperty.resolveWith<Color>((states) {
+            if (states.contains(MaterialState.selected)) {
+              return BimmerdashColors.bmwOrange.withOpacity(0.5);
+            }
+            return Colors.grey[800]!;
+          }),
+        ),
+
+        // Slider theme
+        sliderTheme: SliderThemeData(
+          activeTrackColor: BimmerdashColors.bmwOrange,
+          inactiveTrackColor: Colors.grey[800],
+          thumbColor: BimmerdashColors.bmwOrange,
+          overlayColor: BimmerdashColors.bmwOrange.withOpacity(0.2),
+          valueIndicatorColor: BimmerdashColors.deepNavyBlue,
+        ),
+
+        // Progress indicator theme
+        progressIndicatorTheme: ProgressIndicatorThemeData(
+          color: BimmerdashColors.bmwOrange,
+          linearTrackColor: Colors.grey[800],
+          circularTrackColor: Colors.grey[800],
+        ),
+
+        // Input decoration theme
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[700]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[700]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: BimmerdashColors.bmwOrange, width: 2),
+          ),
+          labelStyle: TextStyle(color: BimmerdashColors.silverGray),
+          hintStyle: TextStyle(color: Colors.grey[600]),
+        ),
+
+        // Typography
+        textTheme: TextTheme(
+          displayLarge: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          displayMedium: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          displaySmall: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          headlineLarge: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          headlineMedium: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          headlineSmall: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          titleLarge: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          titleMedium: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          titleSmall: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          bodyLarge: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+          ),
+          bodyMedium: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+          ),
+          bodySmall: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+          ),
+          labelLarge: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          labelMedium: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          labelSmall: TextStyle(
+            color: BimmerdashColors.silverGray,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+
+        // Scaffold background
+        scaffoldBackgroundColor: BimmerdashColors.deepNavyBlue,
+
+        // Use Roboto font family throughout
+        fontFamily: 'Roboto',
+
+        // Divider theme
+        dividerTheme: DividerThemeData(
+          color: Colors.grey[800],
+          thickness: 1,
+          space: 1,
+        ),
+
+        // Bottom navigation bar theme
+        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+          backgroundColor: BimmerdashColors.darkGrayBlue,
+          selectedItemColor: BimmerdashColors.bmwOrange,
+          unselectedItemColor: BimmerdashColors.silverGray,
+          selectedLabelStyle: TextStyle(fontFamily: 'Roboto'),
+          unselectedLabelStyle: TextStyle(fontFamily: 'Roboto'),
+        ),
+
+        // Tab bar theme
+        tabBarTheme: TabBarThemeData(
+          labelColor: BimmerdashColors.bmwOrange,
+          unselectedLabelColor: BimmerdashColors.silverGray,
+          indicator: UnderlineTabIndicator(
+            borderSide: BorderSide(color: BimmerdashColors.bmwOrange, width: 2),
+          ),
+          labelStyle: TextStyle(
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.bold,
+          ),
+          unselectedLabelStyle: TextStyle(
+            fontFamily: 'Roboto',
+          ),
+        ),
+      ),
       home: const MonitorDashboard(),
     );
   }
@@ -1197,7 +1450,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF121212),
+        backgroundColor: BimmerdashColors.darkGrayBlue,
         title: Row(children: [
           Image.asset('assets/mlogo.png', height: 25, errorBuilder: (c, e, s) => const Icon(Icons.drive_eta)),
           const SizedBox(width: 8),
@@ -1413,9 +1666,19 @@ class GaugePainter extends CustomPainter {
       canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
     }
 
-    // Needle Shadow & Needle
+    // Needle Shadow & Needle with Glow Effect (BMW Orange)
     final angle = (math.pi * 0.85) + (((value - min) / (max - min)).clamp(0.0, 1.0) * math.pi * 1.3);
-    canvas.drawLine(Offset(center.dx + 3.0, center.dy + 3.0), Offset(center.dx + (radius * 0.8) * math.cos(angle) + 3.0, center.dy + (radius * 0.8) * math.sin(angle) + 3.0), Paint()..color = Colors.black.withOpacity(0.5)..strokeWidth = 4..strokeCap = StrokeCap.round);
+
+    // Glow effect for main needle (BMW Orange)
+    final glowPaint = Paint()
+      ..color = BimmerdashColors.bmwOrange.withOpacity(0.8)
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6);
+
+    canvas.drawLine(center, Offset(center.dx + (radius * 0.82) * math.cos(angle), center.dy + (radius * 0.82) * math.sin(angle)), glowPaint);
+
+    // Main needle with proper color
     canvas.drawLine(center, Offset(center.dx + (radius * 0.82) * math.cos(angle), center.dy + (radius * 0.82) * math.sin(angle)), Paint()..color = needleColor..strokeWidth = 3.5..strokeCap = StrokeCap.round);
 
     // Secondary Scale (Glow Arc) - Enhanced with Ticks and Progress Bar
