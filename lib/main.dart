@@ -623,6 +623,14 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   String connectionTestMessage = "";
   DateTime? lastConnectionTestTime;
 
+  // Keep-Alive state
+  Timer? _keepAliveTimer;
+  int _keepAliveFailCount = 0;
+  bool _autoReconnectAttempting = false;
+  static const int maxKeepAliveFails = 3;
+  static const int keepAliveIntervalSeconds = 2;
+  static const int autoReconnectDelaySeconds = 5;
+
   @override
   void initState() {
     super.initState();
@@ -886,17 +894,80 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     }
   }
 
+  // --- KEEP-ALIVE MECHANISM ---
+  /// Starts the keep-alive timer to prevent connection timeout
+  void _startKeepAlive() {
+    _keepAliveTimer?.cancel(); // Cancel any existing timer
+    _keepAliveFailCount = 0;
+
+    _keepAliveTimer = Timer.periodic(
+      const Duration(seconds: keepAliveIntervalSeconds),
+      (timer) async {
+        if (_socket == null || !isConnected) {
+          timer.cancel();
+          return;
+        }
+
+        try {
+          // Send DoIP Keep-Alive request (empty DoIP header)
+          final keepAliveRequest = Uint8List.fromList([0x02, 0xFD, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00]);
+          _socket!.add(keepAliveRequest);
+          debugPrint("Keep-Alive request sent");
+
+          // Reset fail counter on successful send
+          _keepAliveFailCount = 0;
+        } catch (e) {
+          debugPrint("Keep-Alive failed: $e");
+          _keepAliveFailCount++;
+
+          if (_keepAliveFailCount >= maxKeepAliveFails) {
+            debugPrint("Max keep-alive failures reached, disconnecting...");
+            _disconnect();
+            _attemptAutoReconnect();
+          }
+        }
+      },
+    );
+    debugPrint("Keep-Alive timer started (${keepAliveIntervalSeconds}s interval)");
+  }
+
+  /// Attempts to automatically reconnect to the ENET adapter
+  void _attemptAutoReconnect() {
+    if (_autoReconnectAttempting) return;
+
+    _autoReconnectAttempting = true;
+    setState(() {
+      statusText = "RECONNECTING...";
+    });
+
+    Future.delayed(const Duration(seconds: autoReconnectDelaySeconds), () async {
+      try {
+        debugPrint("Attempting auto-reconnect to $adapterIp:$doipPort");
+        await _connect();
+      } catch (e) {
+        debugPrint("Auto-reconnect failed: $e");
+        if (mounted) {
+          setState(() {
+            statusText = "DISCONNECTED";
+          });
+        }
+      } finally {
+        _autoReconnectAttempting = false;
+      }
+    });
+  }
+
   // --- CONNECTION TEST ---
   /// Performs a robust connection test to the ENET adapter
   /// Returns true if successful, false otherwise
   Future<bool> _performConnectionTest() async {
     try {
-      debugPrint("Starting ENET connection test...");
+      debugPrint("Starting ENET connection test to $adapterIp:$doipPort...");
 
       // Step 1: TCP Handshake - Open socket with timeout
       final socket = await Socket.connect(
-        EnetConstants.defaultIp,
-        EnetConstants.defaultPort,
+        adapterIp,
+        doipPort,
         timeout: const Duration(milliseconds: EnetConstants.connectionTimeoutMs)
       );
 
@@ -984,6 +1055,9 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       _tickCounter = 0;
       _zeroRpmCounter = 0;
       isBatterySaveMode = false;
+
+      // Start Keep-Alive mechanism to prevent connection timeout
+      _startKeepAlive();
 
       // Optimized polling with fast/slow categorization and battery saving
       _pollingTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
