@@ -636,258 +636,459 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
             maxHeight: MediaQuery.of(context).size.height * 0.85,
             maxWidth: MediaQuery.of(context).size.width * 0.95,
           ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Settings", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Connection Settings
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Connection", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          decoration: const InputDecoration(
-                            labelText: "IP Address",
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          controller: TextEditingController(text: adapterIp),
-                          onChanged: (v) => adapterIp = v,
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () { Navigator.pop(context); _discoverAdapter(); },
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                            child: const Text("Auto-Discover (UDP)"),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Left Gauge Configuration
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Left Gauge Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String>(
-                                value: currentLayout.leftGauge.mainParamId,
-                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
-                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                  leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
-                                  rightGauge: currentLayout.rightGauge
-                                ))
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String?>(
-                                value: currentLayout.leftGauge.subParamId,
-                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                items: [
-                                  const DropdownMenuItem(value: null, child: Text("KEINE SUB-ANZEIGE")),
-                                  ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
-                                ],
-                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                  leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
-                                  rightGauge: currentLayout.rightGauge
-                                ))
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Right Gauge Configuration
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Right Gauge Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String>(
-                                value: currentLayout.rightGauge.mainParamId,
-                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
-                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                  leftGauge: currentLayout.leftGauge,
-                                  rightGauge: GaugeConfig(mainParamId: id ?? 'timing_all', subParamId: currentLayout.rightGauge.subParamId)
-                                ))
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String?>(
-                                value: currentLayout.rightGauge.subParamId,
-                                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                items: [
-                                  const DropdownMenuItem(value: null, child: Text("KEINE SUB-ANZEIGE")),
-                                  ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
-                                ],
-                                onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                  leftGauge: currentLayout.leftGauge,
-                                  rightGauge: GaugeConfig(mainParamId: currentLayout.rightGauge.mainParamId, subParamId: id)
-                                ))
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Quick Load Presets
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Quick Load Presets", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton(
-                              onPressed: () { setState(() { currentLayout = presets['Performance']!; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                              child: const Text("Performance"),
-                            ),
-                            ElevatedButton(
-                              onPressed: () { setState(() { currentLayout = presets['Track']!; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                              child: const Text("Track"),
-                            ),
-                            ElevatedButton(
-                              onPressed: () { setState(() { currentLayout = presets['Tuner']!; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-                              child: const Text("Tuner"),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Save to User Presets
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Save Current Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton(
-                              onPressed: () { setState(() { presets['User 1'] = currentLayout; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                              child: const Text("Save to User 1"),
-                            ),
-                            ElevatedButton(
-                              onPressed: () { setState(() { presets['User 2'] = currentLayout; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                              child: const Text("Save to User 2"),
-                            ),
-                            ElevatedButton(
-                              onPressed: () { setState(() { presets['User 3'] = currentLayout; }); },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                              child: const Text("Save to User 3"),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // User Preset Management
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("User Preset Management", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(height: 8),
-                        ...['User 1', 'User 2', 'User 3'].map((userKey) => Card(
-                          child: ListTile(
-                            title: Text(userKey),
-                            subtitle: Text("${presets[userKey]!.leftGauge.mainParamId} + ${presets[userKey]!.leftGauge.subParamId ?? 'none'} | ${presets[userKey]!.rightGauge.mainParamId} + ${presets[userKey]!.rightGauge.subParamId ?? 'none'}"),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.play_arrow, color: Colors.green),
-                              tooltip: "Load $userKey",
-                              onPressed: () => setState(() => currentLayout = presets[userKey]!),
-                            ),
-                          ),
-                        )),
-                      ],
-                    ),
+          child: DefaultTabController(
+            length: 4,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Settings", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () { Navigator.pop(context); },
-                      child: const Text("Cancel"),
-                    ),
-                    const SizedBox(width: 16),
-                    ElevatedButton(
-                      onPressed: () { _saveSettings(); Navigator.pop(context); },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      child: const Text("Save & Apply"),
-                    ),
+                const Divider(height: 1),
+                TabBar(
+                  tabs: [
+                    Tab(icon: Icon(Icons.speed), text: "Instruments"),
+                    Tab(icon: Icon(Icons.balance), text: "Units"),
+                    Tab(icon: Icon(Icons.settings_input_component), text: "System"),
+                    Tab(icon: Icon(Icons.info), text: "About"),
                   ],
+                  isScrollable: true,
                 ),
-              ),
-            ],
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      // Instruments Tab
+                      SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Left Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text("Main:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            flex: 2,
+                                            child: DropdownButtonFormField<String>(
+                                              value: currentLayout.leftGauge.mainParamId,
+                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                              items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
+                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                                leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
+                                                rightGauge: currentLayout.rightGauge
+                                              )),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text("Sub:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            flex: 2,
+                                            child: DropdownButtonFormField<String?>(
+                                              value: currentLayout.leftGauge.subParamId,
+                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                              items: [
+                                                const DropdownMenuItem(value: null, child: Text("NONE")),
+                                                ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
+                                              ],
+                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                                leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
+                                                rightGauge: currentLayout.rightGauge
+                                              )),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Right Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text("Main:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            flex: 2,
+                                            child: DropdownButtonFormField<String>(
+                                              value: currentLayout.rightGauge.mainParamId,
+                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                              items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
+                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                                leftGauge: currentLayout.leftGauge,
+                                                rightGauge: GaugeConfig(mainParamId: id ?? 'timing_all', subParamId: currentLayout.rightGauge.subParamId)
+                                              )),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text("Sub:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            flex: 2,
+                                            child: DropdownButtonFormField<String?>(
+                                              value: currentLayout.rightGauge.subParamId,
+                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                              items: [
+                                                const DropdownMenuItem(value: null, child: Text("NONE")),
+                                                ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
+                                              ],
+                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                                leftGauge: currentLayout.leftGauge,
+                                                rightGauge: GaugeConfig(mainParamId: currentLayout.rightGauge.mainParamId, subParamId: id)
+                                              )),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Quick Load Presets", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { currentLayout = presets['Performance']!; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                            child: const Text("Performance"),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { currentLayout = presets['Track']!; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                                            child: const Text("Track"),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { currentLayout = presets['Tuner']!; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                                            child: const Text("Tuner"),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Save Current Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { presets['User 1'] = currentLayout; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                                            child: const Text("User 1"),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { presets['User 2'] = currentLayout; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                                            child: const Text("User 2"),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () { setState(() { presets['User 3'] = currentLayout; }); },
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                                            child: const Text("User 3"),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ...['User 1', 'User 2', 'User 3'].map((userKey) => Card(
+                                        child: ListTile(
+                                          title: Text(userKey),
+                                          subtitle: Text("${presets[userKey]!.leftGauge.mainParamId} + ${presets[userKey]!.leftGauge.subParamId ?? 'none'} | ${presets[userKey]!.rightGauge.mainParamId} + ${presets[userKey]!.rightGauge.subParamId ?? 'none'}"),
+                                          trailing: IconButton(
+                                            icon: const Icon(Icons.play_arrow, color: Colors.green),
+                                            tooltip: "Load $userKey",
+                                            onPressed: () => setState(() => currentLayout = presets[userKey]!),
+                                          ),
+                                        ),
+                                      )),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Units Tab
+                      SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Temperature Units", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SwitchListTile(
+                                        title: const Text("Use Fahrenheit"),
+                                        subtitle: const Text("°C / °F"),
+                                        value: false, // Placeholder - would need to add unit settings state
+                                        onChanged: (bool value) {
+                                          // Placeholder - would need to implement unit settings
+                                        },
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Pressure Units", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SwitchListTile(
+                                        title: const Text("Use PSI"),
+                                        subtitle: const Text("Bar / PSI"),
+                                        value: false, // Placeholder
+                                        onChanged: (bool value) {
+                                          // Placeholder
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // System Tab
+                      SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Connection Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      TextField(
+                                        decoration: const InputDecoration(
+                                          labelText: "IP Address",
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                        ),
+                                        controller: TextEditingController(text: adapterIp),
+                                        onChanged: (v) => adapterIp = v,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: () { Navigator.pop(context); _discoverAdapter(); },
+                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                                          child: const Text("Auto-Discover (UDP)"),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Battery Saver", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SwitchListTile(
+                                        title: const Text("Enable Battery Save Mode"),
+                                        subtitle: const Text("Reduces polling when engine is off"),
+                                        value: isBatterySaveMode,
+                                        onChanged: (bool value) {
+                                          setState(() {
+                                            isBatterySaveMode = value;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Engine Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          const Text("Cylinder Count:"),
+                                          const SizedBox(width: 16),
+                                          DropdownButton<int>(
+                                            value: cylinderCount,
+                                            items: [4, 6].map((int value) {
+                                              return DropdownMenuItem<int>(
+                                                value: value,
+                                                child: Text(value.toString()),
+                                              );
+                                            }).toList(),
+                                            onChanged: (int? newValue) {
+                                              if (newValue != null) {
+                                                setState(() {
+                                                  cylinderCount = newValue;
+                                                  cylinderCorrections = List.filled(newValue, 0.0);
+                                                });
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // About Tab
+                      SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("App Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ListTile(
+                                        leading: Icon(Icons.info),
+                                        title: Text("App Version"),
+                                        subtitle: Text("1.0.0"),
+                                      ),
+                                      ListTile(
+                                        leading: Icon(Icons.car_repair),
+                                        title: Text("Vehicle Model"),
+                                        subtitle: Text(carModel),
+                                      ),
+                                      if (vinDisplay.isNotEmpty)
+                                        ListTile(
+                                          leading: Icon(Icons.vpn_key),
+                                          title: Text("VIN"),
+                                          subtitle: Text(vinDisplay),
+                                        ),
+                                      ListTile(
+                                        leading: Icon(Icons.cloud),
+                                        title: Text("Connection Status"),
+                                        subtitle: Text(statusText),
+                                        trailing: Icon(
+                                          isConnected ? Icons.cloud_done : Icons.cloud_off,
+                                          color: isConnected ? Colors.green : Colors.red,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    children: [
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text("Status Log", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text("Recent events and status changes will be displayed here."),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () { Navigator.pop(context); },
+                        child: const Text("Cancel"),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton(
+                        onPressed: () { _saveSettings(); Navigator.pop(context); },
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                        child: const Text("Save & Apply"),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
