@@ -18,9 +18,41 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 void main() {
-  runApp(const BimmerdashApp());
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Bimmerdash',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.dark(
+          primary: BimmerdashColors.modernAccentOrange,
+          secondary: BimmerdashColors.modernTextGray,
+          surface: BimmerdashColors.modernDeepBlue,
+          background: BimmerdashColors.modernDeepBlue,
+          error: BimmerdashColors.redZone,
+          onPrimary: BimmerdashColors.modernDeepBlue,
+          onSecondary: BimmerdashColors.modernDeepBlue,
+          onSurface: BimmerdashColors.modernTextGray,
+          onBackground: BimmerdashColors.modernTextGray,
+          onError: BimmerdashColors.modernTextGray,
+        ),
+        fontFamily: 'Roboto',
+        scaffoldBackgroundColor: BimmerdashColors.modernDeepBlue,
+      ),
+      home: const SplashScreen(),
+    );
+  }
 }
 
 class DashboardLayout {
@@ -121,6 +153,109 @@ class BimmerdashColors {
   static const Color darkSurface = Color(0xFF1A1A2E); // Cards and surfaces
   static const Color darkGrayBlue = Color(0xFF12121A); // App bars and backgrounds
   static const Color redZone = Color(0xFFCE1237); // Warning/red zone color
+
+  // Modern Performance Theme Colors
+  static const Color modernDeepBlue = Color(0xFF001529); // Deep night blue
+  static const Color modernAccentOrange = Color(0xFFFF8C00); // BMW Vivid Orange
+  static const Color modernTextGray = Color(0xFFE0E0E0); // Aluminium Gray
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Simulate initialization (loading assets, checking network, etc.)
+    await Future.delayed(const Duration(seconds: 3));
+
+    // Check if we're connected to ENET_WIFI
+    await _checkENETNetwork();
+
+    // Navigate to main app
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const BimmerdashApp()),
+      );
+    }
+  }
+
+  Future<void> _checkENETNetwork() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.wifi) {
+      // In a real app, we would check the specific SSID here
+      // For now, we'll just try to ping the default ENET adapter IP
+      try {
+        // This would be replaced with actual ping functionality
+        // For demo purposes, we'll just set a flag
+        debugPrint("ENET network check completed");
+      } catch (e) {
+        debugPrint("ENET network check failed: $e");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: BimmerdashColors.modernDeepBlue,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // App Icon
+            Image.asset(
+              'assets/icon/app_icon_raw.png',
+              width: 120,
+              height: 120,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 30),
+
+            // BIMMERDASH Text with Modern Typography
+            Text(
+              'BIMMERDASH',
+              style: GoogleFonts.lexend(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: BimmerdashColors.modernTextGray,
+                letterSpacing: 4.0,
+                shadows: [
+                  Shadow(
+                    blurRadius: 2.0,
+                    color: Colors.black.withOpacity(0.3),
+                    offset: Offset(1.0, 1.0),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Loading indicator with BMW Orange accent
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  BimmerdashColors.modernAccentOrange,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class BimmerdashApp extends StatelessWidget {
@@ -451,8 +586,8 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   String statusText = "DISCONNECTED";
   Socket? _socket;
   Timer? _pollingTimer;
-  String adapterIp = "192.168.16.103";
-  int doipPort = 13400;
+  String adapterIp = "192.168.16.254"; // ENET adapter default IP
+  int doipPort = 13400; // DoIP standard port
 
   // Vehicle recognition state
   String carModel = "BMW PERFORMANCE";
@@ -1635,8 +1770,8 @@ class GaugePainter extends CustomPainter {
     final radius = size.width / 2;
     final outerRect = Rect.fromCircle(center: center, radius: radius);
 
-    // Background Gradient
-    canvas.drawCircle(center, radius, Paint()..shader = RadialGradient(colors: [const Color(0xFF2A2A2A), Colors.black], stops: const [0.7, 1.0]).createShader(outerRect));
+    // Background Gradient - Modern Performance Theme
+    canvas.drawCircle(center, radius, Paint()..shader = RadialGradient(colors: [BimmerdashColors.modernDeepBlue, Colors.black], stops: const [0.7, 1.0]).createShader(outerRect));
     canvas.drawCircle(center, radius, Paint()..color = Colors.grey[800]!..style = PaintingStyle.stroke..strokeWidth = 2);
 
     // Ticks & Numbers
@@ -1664,6 +1799,20 @@ class GaugePainter extends CustomPainter {
     // Red Zone
     if (showRedZone && max > 100) {
       canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
+    }
+
+    // Outer Glow Effect - Modern Performance Theme
+    // Add subtle orange glow when values are rising (simulated by checking if value is above 50% of range)
+    final normalizedValue = ((value - min) / (max - min)).clamp(0.0, 1.0);
+    if (normalizedValue > 0.5) { // Glow effect when value is above 50%
+      final glowIntensity = (normalizedValue - 0.5) * 2.0; // 0.0 to 1.0 intensity
+      final outerGlowPaint = Paint()
+        ..color = BimmerdashColors.modernAccentOrange.withOpacity(0.1 * glowIntensity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 15 * glowIntensity
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 * glowIntensity);
+
+      canvas.drawCircle(center, radius * 0.95, outerGlowPaint);
     }
 
     // Needle Shadow & Needle with Glow Effect (BMW Orange)
