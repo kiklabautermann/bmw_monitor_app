@@ -1,3 +1,13 @@
+/**
+ * Bimmerdash - BMW Enthusiast Dashboard
+ *
+ * A comprehensive vehicle monitoring application for BMW enthusiasts.
+ * Provides real-time vehicle data, diagnostics, and performance monitoring.
+ *
+ * This is an independent enthusiast project and is not affiliated with,
+ * sponsored by, or endorsed by BMW AG.
+ */
+
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:io';
@@ -10,7 +20,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  runApp(const BMWMonitorApp());
+  runApp(const BimmerdashApp());
 }
 
 class DashboardLayout {
@@ -103,12 +113,13 @@ class DisplayParam {
   ];
 }
 
-class BMWMonitorApp extends StatelessWidget {
-  const BMWMonitorApp({super.key});
+class BimmerdashApp extends StatelessWidget {
+  const BimmerdashApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: 'Bimmerdash',
       theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: Colors.black),
       home: const MonitorDashboard(),
     );
@@ -1014,50 +1025,54 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                     children: [
                                       const Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text("App Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                        child: Text("About Bimmerdash", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                                       ),
-                                      const SizedBox(height: 8),
+                                      const SizedBox(height: 12),
                                       ListTile(
-                                        leading: Icon(Icons.info),
-                                        title: Text("App Version"),
+                                        leading: Icon(Icons.info, color: Colors.blue),
+                                        title: Text("App Name", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        subtitle: Text("Bimmerdash"),
+                                      ),
+                                      ListTile(
+                                        leading: Icon(Icons.numbers, color: Colors.blue),
+                                        title: Text("Version", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text("1.0.0"),
                                       ),
                                       ListTile(
-                                        leading: Icon(Icons.car_repair),
-                                        title: Text("Vehicle Model"),
+                                        leading: Icon(Icons.car_repair, color: Colors.blue),
+                                        title: Text("Vehicle Model", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text(carModel),
                                       ),
                                       if (vinDisplay.isNotEmpty)
                                         ListTile(
-                                          leading: Icon(Icons.vpn_key),
-                                          title: Text("VIN"),
+                                          leading: Icon(Icons.vpn_key, color: Colors.blue),
+                                          title: Text("VIN", style: TextStyle(fontWeight: FontWeight.bold)),
                                           subtitle: Text(vinDisplay),
                                         ),
                                       ListTile(
-                                        leading: Icon(Icons.cloud),
-                                        title: Text("Connection Status"),
+                                        leading: Icon(Icons.cloud, color: Colors.blue),
+                                        title: Text("Connection Status", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text(statusText),
                                         trailing: Icon(
                                           isConnected ? Icons.cloud_done : Icons.cloud_off,
                                           color: isConnected ? Colors.green : Colors.red,
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    children: [
+                                      const SizedBox(height: 16),
+                                      const Divider(),
+                                      const SizedBox(height: 16),
                                       const Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text("Status Log", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                        child: Text("Legal Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
                                       ),
                                       const SizedBox(height: 8),
-                                      const Text("Recent events and status changes will be displayed here."),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 4),
+                                        child: Text(
+                                          "Bimmerdash is an independent enthusiast project and is not affiliated with, sponsored by, or endorsed by BMW AG. BMW is a registered trademark of BMW AG. Any use of the brand name or terminology is for identification purposes only.",
+                                          style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),

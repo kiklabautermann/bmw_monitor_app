@@ -1,4 +1,4 @@
-name: obd2app
+name: bimmerdash
 description: "A Bimmer Enthusiast's Tool"
 publish_to: 'none'
 version: 0.1.0
