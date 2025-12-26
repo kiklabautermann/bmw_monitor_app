@@ -65,3 +65,4 @@ flutter:
     - assets/mlogo.png
     - assets/models.json
     - assets/dtc_codes.json
+    - assets/icon/app_icon_raw.png
