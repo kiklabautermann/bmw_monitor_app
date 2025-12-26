@@ -248,7 +248,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 shadows: [
                   Shadow(
                     blurRadius: 2.0,
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     offset: Offset(1.0, 1.0),
                   ),
                 ],
@@ -313,7 +313,7 @@ class BimmerdashApp extends StatelessWidget {
         // Card theme
         cardTheme: CardThemeData(
           color: BimmerdashColors.darkSurface,
-          surfaceTintColor: BimmerdashColors.bmwOrange.withOpacity(0.1),
+          surfaceTintColor: BimmerdashColors.bmwOrange.withValues(alpha: 0.1),
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -371,7 +371,7 @@ class BimmerdashApp extends StatelessWidget {
           }),
           trackColor: MaterialStateProperty.resolveWith<Color>((states) {
             if (states.contains(MaterialState.selected)) {
-              return BimmerdashColors.bmwOrange.withOpacity(0.5);
+              return BimmerdashColors.bmwOrange.withValues(alpha: 0.5);
             }
             return Colors.grey[800]!;
           }),
@@ -382,7 +382,7 @@ class BimmerdashApp extends StatelessWidget {
           activeTrackColor: BimmerdashColors.bmwOrange,
           inactiveTrackColor: Colors.grey[800],
           thumbColor: BimmerdashColors.bmwOrange,
-          overlayColor: BimmerdashColors.bmwOrange.withOpacity(0.2),
+          overlayColor: BimmerdashColors.bmwOrange.withValues(alpha: 0.2),
           valueIndicatorColor: BimmerdashColors.deepNavyBlue,
         ),
 
@@ -1502,7 +1502,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                               boxShadow: isTestingConnection || connectionTestResult == true
                                                 ? [
                                                     BoxShadow(
-                                                      color: (isTestingConnection ? Colors.yellow : Colors.green).withOpacity(0.6),
+                                                      color: (isTestingConnection ? Colors.yellow : Colors.green).withValues(alpha: 0.6),
                                                       blurRadius: 8,
                                                       spreadRadius: 2,
                                                     ),
@@ -1817,7 +1817,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: isConnected ? Colors.blue.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+              color: isConnected ? Colors.blue.withValues(alpha: 0.2) : Colors.red.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Row(
@@ -2007,14 +2007,14 @@ class GaugePainter extends CustomPainter {
       canvas.drawLine(
         Offset(center.dx + startRadius * math.cos(angle), center.dy + startRadius * math.sin(angle)),
         Offset(center.dx + (startRadius - tickLength) * math.cos(angle), center.dy + (startRadius - tickLength) * math.sin(angle)),
-        Paint()..color = isMajor ? Colors.white.withOpacity(0.9) : Colors.white.withOpacity(0.4)..strokeWidth = isMajor ? 2.5 : 1.2..strokeCap = StrokeCap.round,
+        Paint()..color = isMajor ? Colors.white.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.4)..strokeWidth = isMajor ? 2.5 : 1.2..strokeCap = StrokeCap.round,
       );
 
       if (isMajor && i % 10 == 0) {
         final val = min + (i / 50 * (max - min));
         if (max > 100 && (val < 60 || val > 160)) continue;
         final textRadius = startRadius - tickLength - 15;
-        final textPainter = TextPainter(text: TextSpan(text: max > 5 ? val.toInt().toString() : val.toStringAsFixed(1), style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: radius * 0.12, fontWeight: FontWeight.w400)), textDirection: TextDirection.ltr);
+        final textPainter = TextPainter(text: TextSpan(text: max > 5 ? val.toInt().toString() : val.toStringAsFixed(1), style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: radius * 0.12, fontWeight: FontWeight.w400)), textDirection: TextDirection.ltr);
         textPainter.layout();
         textPainter.paint(canvas, Offset(center.dx + textRadius * math.cos(angle) - textPainter.width / 2, center.dy + textRadius * math.sin(angle) - textPainter.height / 2));
       }
@@ -2022,7 +2022,7 @@ class GaugePainter extends CustomPainter {
 
     // Red Zone
     if (showRedZone && max > 100) {
-      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withValues(alpha: 0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
     }
 
     // Outer Glow Effect - Modern Performance Theme
@@ -2031,7 +2031,7 @@ class GaugePainter extends CustomPainter {
     if (normalizedValue > 0.5) { // Glow effect when value is above 50%
       final glowIntensity = (normalizedValue - 0.5) * 2.0; // 0.0 to 1.0 intensity
       final outerGlowPaint = Paint()
-        ..color = BimmerdashColors.modernAccentOrange.withOpacity(0.1 * glowIntensity)
+        ..color = BimmerdashColors.modernAccentOrange.withValues(alpha: 0.1 * glowIntensity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 15 * glowIntensity
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 * glowIntensity);
@@ -2044,7 +2044,7 @@ class GaugePainter extends CustomPainter {
 
     // Glow effect for main needle (BMW Orange)
     final glowPaint = Paint()
-      ..color = BimmerdashColors.bmwOrange.withOpacity(0.8)
+      ..color = BimmerdashColors.bmwOrange.withValues(alpha: 0.8)
       ..strokeWidth = 8
       ..strokeCap = StrokeCap.round
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6);
@@ -2110,7 +2110,7 @@ class GaugePainter extends CustomPainter {
 
       // Draw thick background track (rail)
       final trackPaint = Paint()
-        ..color = Colors.grey[800]!.withOpacity(0.8) // Dark grey track
+        ..color = Colors.grey[800]!.withValues(alpha: 0.8) // Dark grey track
         ..style = PaintingStyle.stroke
         ..strokeWidth = radius * 0.06
         ..strokeCap = StrokeCap.round; // Rounded ends for OEM quality
