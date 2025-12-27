@@ -81,6 +81,9 @@ class VehicleInfo {
   final String modelSeries;
   final String manufacturer;
   final int modelYear;
+  final int flashCycles;
+  final int oilServiceMileage;
+  final String oilServiceDate;
 
   VehicleInfo({
     this.vin = "",
@@ -89,6 +92,9 @@ class VehicleInfo {
     this.modelSeries = "Unbekannt",
     this.manufacturer = "BMW",
     this.modelYear = 0,
+    this.flashCycles = 0,
+    this.oilServiceMileage = 0,
+    this.oilServiceDate = "",
   });
 
   String get shortVin => vin.length >= 7 ? vin.substring(vin.length - 7) : vin;
@@ -101,6 +107,9 @@ class VehicleInfo {
       modelSeries: json['modelSeries'] ?? "Unbekannt",
       manufacturer: json['manufacturer'] ?? "BMW",
       modelYear: json['modelYear'] ?? 0,
+      flashCycles: json['flashCycles'] ?? 0,
+      oilServiceMileage: json['oilServiceMileage'] ?? 0,
+      oilServiceDate: json['oilServiceDate'] ?? "",
     );
   }
 
@@ -112,6 +121,9 @@ class VehicleInfo {
       'modelSeries': modelSeries,
       'manufacturer': manufacturer,
       'modelYear': modelYear,
+      'flashCycles': flashCycles,
+      'oilServiceMileage': oilServiceMileage,
+      'oilServiceDate': oilServiceDate,
     };
   }
 }
@@ -768,6 +780,8 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     _requestUdsData(0x22, 0xF190); // VIN
     _requestUdsData(0x22, 0xF18B); // Production Date
     _requestUdsData(0x22, 0xDE83); // Mileage
+    _requestUdsData(0x22, 0xF100); // DME Flash Cycles
+    _requestUdsData(0x22, 0xDE1F); // Oil Service Status
   }
 
   void _requestUdsData(int serviceId, int dataId) {
@@ -895,9 +909,68 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           modelSeries: vehicleInfo.modelSeries,
           manufacturer: vehicleInfo.manufacturer,
           modelYear: vehicleInfo.modelYear,
+          flashCycles: vehicleInfo.flashCycles,
+          oilServiceMileage: vehicleInfo.oilServiceMileage,
+          oilServiceDate: vehicleInfo.oilServiceDate,
         );
       });
       _saveSettings();
+    }
+  }
+
+  void _processFlashCyclesResponse(Uint8List data) {
+    if (data.length < 17 || data[13] != 0x62) return;
+    Uint8List pld = data.sublist(16);
+    if (pld.length >= 2) {
+      int cycles = (pld[0] << 8) | pld[1];
+      if (mounted) {
+        setState(() {
+          vehicleInfo = VehicleInfo(
+            vin: vehicleInfo.vin,
+            mileage: vehicleInfo.mileage,
+            productionDate: vehicleInfo.productionDate,
+            modelSeries: vehicleInfo.modelSeries,
+            manufacturer: vehicleInfo.manufacturer,
+            modelYear: vehicleInfo.modelYear,
+            flashCycles: cycles,
+            oilServiceMileage: vehicleInfo.oilServiceMileage,
+            oilServiceDate: vehicleInfo.oilServiceDate,
+          );
+        });
+        _saveSettings();
+      }
+    }
+  }
+
+  void _processOilServiceResponse(Uint8List data) {
+    if (data.length < 17 || data[13] != 0x62) return;
+    Uint8List pld = data.sublist(16);
+    // BMW CBS Oil Service data mapping (example format)
+    // Byte 0-1: Remaining Mileage (x10 or x100 depending on model, usually km directly)
+    // Byte 2: Monthly index or date
+    // This logic might need adjustment based on specific chassis (E/F/G)
+    if (pld.length >= 4) {
+      int restKm = (pld[0] << 8) | pld[1];
+      // Date decoding: BMW often stores months since 2000 or similar
+      // For simplicity, handle as MM.YYYY if possible, or use raw if not
+      String dueDate = "${pld[2].toString().padLeft(2, '0')}.20${pld[3].toString().padLeft(2, '0')}";
+      
+      if (mounted) {
+        setState(() {
+          vehicleInfo = VehicleInfo(
+            vin: vehicleInfo.vin,
+            mileage: vehicleInfo.mileage,
+            productionDate: vehicleInfo.productionDate,
+            modelSeries: vehicleInfo.modelSeries,
+            manufacturer: vehicleInfo.manufacturer,
+            modelYear: vehicleInfo.modelYear,
+            flashCycles: vehicleInfo.flashCycles,
+            oilServiceMileage: restKm,
+            oilServiceDate: dueDate,
+          );
+        });
+        _saveSettings();
+      }
     }
   }
 
@@ -1370,6 +1443,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         _processMileageResponse(data);
       } else if (rDid == "F18B") {
         _processProductionDateResponse(data);
+      } else if (rDid == "F100") {
+        _processFlashCyclesResponse(data);
+      } else if (rDid == "DE1F") {
+        _processOilServiceResponse(data);
       }
 
       // Handle RPM response for battery saving detection
@@ -2590,11 +2667,32 @@ class VehicleHealthPage extends StatelessWidget {
         _buildInfoTile("PRODUKTION", info.productionDate.isEmpty ? "Unbekannt" : info.productionDate, Icons.calendar_today),
         _buildInfoTile("VIN (KURZ)", info.shortVin, Icons.vpn_key),
         _buildInfoTile("MODELLJAHR", info.modelYear > 0 ? info.modelYear.toString() : "N/A", Icons.history),
+        _buildInfoTile("DME FLASH-ZYKLEN", "${info.flashCycles}", Icons.memory, subtitle: "Software & History"),
+        _buildServiceTile("NÄCHSTER ÖLWECHSEL", info.oilServiceMileage, info.oilServiceDate, Icons.oil_barrel, subtitle: "Wartung"),
       ],
     );
   }
 
-  Widget _buildInfoTile(String label, String value, IconData icon) {
+  Widget _buildServiceTile(String label, int restKm, String date, IconData icon, {String? subtitle}) {
+    // Color logic: Orange if < 2000km or due soon, Red if overdue
+    Color textColor = Colors.white70;
+    
+    // Check for overdue (simple check, assuming date is MM.YYYY)
+    bool isOverdue = false;
+    bool isUrgent = false;
+    
+    if (restKm <= 0) {
+      isOverdue = true;
+    } else if (restKm < 2000) {
+      isUrgent = true;
+    }
+
+    if (isOverdue) {
+      textColor = BimmerdashColors.redZone;
+    } else if (isUrgent) {
+      textColor = Colors.orange;
+    }
+
     return Card(
       color: Colors.white.withValues(alpha: 0.05),
       child: Padding(
@@ -2603,11 +2701,54 @@ class VehicleHealthPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (subtitle != null)
+              Text(subtitle, style: const TextStyle(fontSize: 8, color: Colors.white24, fontWeight: FontWeight.bold)),
             Row(
               children: [
                 Icon(icon, size: 14, color: Colors.grey),
                 const SizedBox(width: 5),
-                Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "in $restKm km\nam $date",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: textColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoTile(String label, String value, IconData icon, {String? subtitle}) {
+    return Card(
+      color: Colors.white.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (subtitle != null)
+              Text(subtitle, style: const TextStyle(fontSize: 8, color: Colors.white24, fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Icon(icon, size: 14, color: Colors.grey),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
