@@ -1343,10 +1343,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   // --- NETWORK ---
-  /// Send DoIP UDP wakeup packet to trigger the ENET adapter
-  Future<void> _sendUdpWakeup() async {
+  /// Send DoIP UDP discovery (wake-up) packet to trigger the ENET adapter
+  Future<void> _sendUdpDiscovery() async {
     try {
-      debugPrint("Sende DoIP UDP-Wakeup...");
+      debugPrint("Sende UDP DoIP Discovery...");
 
       // Create a raw datagram socket for UDP broadcast
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -1358,19 +1358,17 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       // Send broadcast to 255.255.255.255 on port 13400
       socket.send(payload, InternetAddress("255.255.255.255"), 13400);
 
-      debugPrint("Warte auf Adapter-Reaktion (500ms)...");
-
       // Wait 500ms for adapter to route TCP stack internally
       await Future.delayed(const Duration(milliseconds: 500));
 
       socket.close();
     } catch (e) {
-      debugPrint("DoIP UDP-Wakeup fehlgeschlagen: $e");
+      debugPrint("DoIP UDP Discovery fehlgeschlagen: $e");
       // Continue even if UDP fails - it's just a wakeup trigger
     }
   }
 
-  /// Optimized TCP connection with retry logic
+  /// Optimized TCP connection with retry logic and tcpNoDelay option
   Future<Socket> _connectWithRetry() async {
     int retryCount = 0;
     const maxRetries = 3;
@@ -1385,9 +1383,11 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           doipPort,
           timeout: const Duration(seconds: 3),
         );
+        // Set tcpNoDelay to true for immediate packet sending
+        socket.setOption(SocketOption.tcpNoDelay, true);
         debugPrint("TCP-Verbindung erfolgreich!");
         return socket;
-      } on SocketException catch (e) {
+      } on SocketException {
         retryCount++;
         if (retryCount < maxRetries) {
           debugPrint("Retry [$retryCount] nach Connection Refused...");
@@ -1410,18 +1410,86 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     throw Exception("Connection failed after $maxRetries attempts");
   }
 
+  /// Send DoIP Routing Activation and wait for confirmation
+  Future<bool> _sendRoutingActivation(Socket socket) async {
+    try {
+      debugPrint("Sende DoIP Routing Activation...");
+
+      // DoIP Routing Activation Request payload
+      final activationPayload = Uint8List.fromList([0x02, 0xFD, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+      socket.add(activationPayload);
+
+      // Wait for routing activation response
+      final completer = Completer<bool>();
+      final timer = Timer(const Duration(seconds: 2), () {
+        if (!completer.isCompleted) {
+          debugPrint("Timeout - Keine Routing Activation Antwort erhalten");
+          completer.complete(false);
+        }
+      });
+
+      // Listen for response
+      socket.listen(
+        (data) {
+          if (!completer.isCompleted) {
+            timer.cancel();
+
+            // Check if response starts with expected Routing Activation Confirmation (02 FD 80 02)
+            if (data.length >= 4 &&
+                data[0] == 0x02 &&
+                data[1] == 0xFD &&
+                data[2] == 0x80 &&
+                data[3] == 0x02) {
+
+              debugPrint("Routing Activation erfolgreich! Antwort: ${data.sublist(0, math.min(16, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}");
+              completer.complete(true);
+            } else {
+              debugPrint("Ungültige Routing Activation Antwort: ${data.sublist(0, math.min(16, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}");
+              completer.complete(false);
+            }
+          }
+        },
+        onError: (error) {
+          if (!completer.isCompleted) {
+            timer.cancel();
+            debugPrint("Fehler bei Routing Activation: $error");
+            completer.complete(false);
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            timer.cancel();
+            debugPrint("Socket geschlossen während Routing Activation");
+            completer.complete(false);
+          }
+        },
+        cancelOnError: true,
+      );
+
+      return await completer.future;
+    } catch (e) {
+      debugPrint("Routing Activation fehlgeschlagen: $e");
+      return false;
+    }
+  }
+
   Future<void> _connect() async {
     try {
       setState(() => statusText = "CONNECTING...");
 
-      // Step 1: Send UDP wakeup packet
-      await _sendUdpWakeup();
+      // Step 1: Send UDP discovery (wake-up)
+      await _sendUdpDiscovery();
 
       // Step 2: Establish TCP connection with retry logic
       _socket = await _connectWithRetry();
 
-      // Step 3: Send initial DoIP routing activation
-      _socket!.add(Uint8List.fromList([0x02, 0xFD, 0x00, 0x05, 0x00, 0x00, 0x00, 0x07, 0x0E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+      // Step 3: Send DoIP Routing Activation and wait for confirmation
+      final routingSuccess = await _sendRoutingActivation(_socket!);
+      if (!routingSuccess) {
+        throw Exception("DoIP Routing Activation failed");
+      }
+
+      // Set up data listener after successful routing activation
       _socket!.listen(_onDataReceived, onDone: _disconnect, onError: (_) => _disconnect());
       setState(() { isConnected = true; statusText = "CONNECTED"; });
 
