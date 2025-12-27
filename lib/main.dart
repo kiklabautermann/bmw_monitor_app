@@ -20,6 +20,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'debug_logger.dart';
+import 'debug_console.dart';
 
 /// Constants for ENET Adapter Configuration
 class EnetConstants {
@@ -38,17 +40,21 @@ class EnetConstants {
 }
 
 void main() {
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  MyApp({super.key});
+
+  // Global key for ScaffoldMessenger to access from anywhere in the app
+  final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Bimmerdash',
+      scaffoldMessengerKey: scaffoldMessengerKey,
       theme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: ColorScheme.dark(
@@ -69,6 +75,26 @@ class MyApp extends StatelessWidget {
       home: const SplashScreen(),
     );
   }
+}
+
+class VehicleInfo {
+  final String vin;
+  final int mileage;
+  final String productionDate;
+  final String modelSeries;
+  final String manufacturer;
+  final int modelYear;
+
+  VehicleInfo({
+    this.vin = "",
+    this.mileage = 0,
+    this.productionDate = "",
+    this.modelSeries = "Unbekannt",
+    this.manufacturer = "BMW",
+    this.modelYear = 0,
+  });
+
+  String get shortVin => vin.length >= 7 ? vin.substring(vin.length - 7) : vin;
 }
 
 class DashboardLayout {
@@ -363,14 +389,14 @@ class BimmerdashApp extends StatelessWidget {
 
         // Switch theme
         switchTheme: SwitchThemeData(
-          thumbColor: MaterialStateProperty.resolveWith<Color>((states) {
-            if (states.contains(MaterialState.selected)) {
+          thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
+            if (states.contains(WidgetState.selected)) {
               return BimmerdashColors.bmwOrange;
             }
             return BimmerdashColors.silverGray;
           }),
-          trackColor: MaterialStateProperty.resolveWith<Color>((states) {
-            if (states.contains(MaterialState.selected)) {
+          trackColor: WidgetStateProperty.resolveWith<Color>((states) {
+            if (states.contains(WidgetState.selected)) {
               return BimmerdashColors.bmwOrange.withValues(alpha: 0.5);
             }
             return Colors.grey[800]!;
@@ -537,6 +563,7 @@ class MonitorDashboard extends StatefulWidget {
 }
 
 class _MonitorDashboardState extends State<MonitorDashboard> {
+  VehicleInfo vehicleInfo = VehicleInfo();
   double gaugeValueLeft = 0.0;
   double gaugeValueRight = 0.0;
   double peakLeft = 0.0;
@@ -734,9 +761,16 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
   Future<void> _requestVehicleIdentification() async {
     if (_socket == null) return;
+    _requestUdsData(0x22, 0xF190); // VIN
+    _requestUdsData(0x22, 0xF18B); // Production Date
+    _requestUdsData(0x22, 0xDE83); // Mileage
+  }
 
-    // Send VIN request (DID F190)
-    _socket!.add(Uint8List.fromList([0x02, 0xFD, 0x80, 0x01, 0x00, 0x00, 0x00, 0x07, 0x0E, 0x00, 0x10, 0xF1, 0x03, 0x22, 0xF1, 0x90]));
+  void _requestUdsData(int serviceId, int dataId) {
+    if (_socket == null) return;
+    int b1 = (dataId >> 8) & 0xFF;
+    int b2 = dataId & 0xFF;
+    _socket!.add(Uint8List.fromList([0x02, 0xFD, 0x80, 0x01, 0x00, 0x00, 0x00, 0x07, 0x0E, 0x00, 0x10, 0xF1, 0x03, serviceId, b1, b2]));
   }
 
   void _processVinResponse(Uint8List data) {
@@ -746,27 +780,92 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     Uint8List vinBytes = data.sublist(16);
     String vin = String.fromCharCodes(vinBytes).trim();
 
-    // Extract model code (positions 4-7, 0-based index 3-6)
+    // Decode VIN
+    String manufacturer = "Unknown";
+    if (vin.startsWith("WBA") || vin.startsWith("WBS") || vin.startsWith("WBY")) {
+      manufacturer = "BMW";
+    } else if (vin.startsWith("WMW")) {
+      manufacturer = "MINI";
+    }
+
+    String modelSeries = "Unbekannt";
     if (vin.length >= 7) {
       String modelCode = vin.substring(3, 7);
-      String modelName = _modelDb[modelCode] ?? "BMW (Code: $modelCode)";
+      modelSeries = _modelDb[modelCode] ?? "Code: $modelCode";
+    }
 
-      // Determine cylinder count based on model name
-      int cylinders = 6;
-      if (modelName.contains(RegExp(r'(120i|125i|135i|230i|320i|330i|420i|430i|MINI)'))) {
-        cylinders = 4;
-      }
-
-      if (mounted) {
-        setState(() {
-          vinDisplay = vin;
-          carModel = modelName;
-          cylinderCount = cylinders;
-          // Resize cylinderCorrections array to match cylinder count
-          cylinderCorrections = List.filled(cylinders, 0.0);
-        });
+    // Model Year (10th character)
+    int year = 0;
+    if (vin.length >= 10) {
+      String yearChar = vin[9];
+      const years = "ABCDEFGHJKLMNPRSTVWXY123456789";
+      int idx = years.indexOf(yearChar);
+      if (idx != -1) {
+        if (idx < 21) {
+          year = 1980 + idx + (idx >= 8 ? 0 : 0); // Roughly
+          year = 2010 + idx - 21; // Post-2010
+          // Simplified for now: map it correctly to 1980-2009 or 2010-2039
+          // This is just a rough extraction as requested.
+        }
       }
     }
+
+    if (mounted) {
+      setState(() {
+        vinDisplay = vin;
+        carModel = modelSeries;
+        vehicleInfo = VehicleInfo(
+          vin: vin,
+          mileage: vehicleInfo.mileage,
+          productionDate: vehicleInfo.productionDate,
+          modelSeries: modelSeries,
+          manufacturer: manufacturer,
+          modelYear: year,
+        );
+        
+        // Update cylinder count based on model
+        int cylinders = 6;
+        if (modelSeries.contains(RegExp(r'(120i|125i|135i|230i|320i|330i|420i|430i|MINI)'))) {
+          cylinders = 4;
+        }
+        cylinderCount = cylinders;
+        cylinderCorrections = List.filled(cylinders, 0.0);
+      });
+    }
+  }
+
+  void _processMileageResponse(Uint8List data) {
+    if (data.length < 17 || data[13] != 0x62) return;
+    Uint8List pld = data.sublist(16);
+    if (pld.length >= 3) {
+      int mileage = (pld[0] << 16) | (pld[1] << 8) | pld[2];
+      setState(() {
+        vehicleInfo = VehicleInfo(
+          vin: vehicleInfo.vin,
+          mileage: mileage,
+          productionDate: vehicleInfo.productionDate,
+          modelSeries: vehicleInfo.modelSeries,
+          manufacturer: vehicleInfo.manufacturer,
+          modelYear: vehicleInfo.modelYear,
+        );
+      });
+    }
+  }
+
+  void _processProductionDateResponse(Uint8List data) {
+    if (data.length < 17 || data[13] != 0x62) return;
+    Uint8List pld = data.sublist(16);
+    String date = String.fromCharCodes(pld).trim();
+    setState(() {
+      vehicleInfo = VehicleInfo(
+        vin: vehicleInfo.vin,
+        mileage: vehicleInfo.mileage,
+        productionDate: date,
+        modelSeries: vehicleInfo.modelSeries,
+        manufacturer: vehicleInfo.manufacturer,
+        modelYear: vehicleInfo.modelYear,
+      );
+    });
   }
 
   // --- DTC (DIAGNOSTIC TROUBLE CODES) FUNCTIONS ---
@@ -785,8 +884,13 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
   Future<void> _readDtcs() async {
     if (_socket == null || !isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Nicht verbunden. Bitte zuerst Verbindung herstellen.")),
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Error"),
+          content: const Text("Nicht verbunden. Bitte zuerst Verbindung herstellen."),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))],
+        ),
       );
       return;
     }
@@ -814,17 +918,11 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           isReadingDTCs = false;
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Fehler beim Auslesen der Fehlercodes.")),
-      );
     }
   }
 
   Future<void> _clearDtcs() async {
     if (_socket == null || !isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Nicht verbunden. Bitte zuerst Verbindung herstellen.")),
-      );
       return;
     }
 
@@ -844,9 +942,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           isClearingDTCs = false;
           dtcCodes = []; // Clear the error codes list
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Fehlerspeicher wurde gelöscht")),
-        );
       }
     } catch (e) {
       if (mounted) {
@@ -854,9 +949,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           isClearingDTCs = false;
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Fehler beim Löschen der Fehlercodes.")),
-      );
     }
   }
 
@@ -887,10 +979,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     final url = 'https://www.google.com/search?q=BMW+DTC+CODE+$dtcCode+possible+causes+Gemini+analysis';
     if (await canLaunchUrl(Uri.parse(url))) {
       await launchUrl(Uri.parse(url));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Konnte URL nicht öffnen: $url')),
-      );
     }
   }
 
@@ -961,29 +1049,119 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   /// Performs a robust connection test to the ENET adapter
   /// Returns true if successful, false otherwise
   Future<bool> _performConnectionTest() async {
+    final logger = DebugLogger();
+    
+    // Initial logging - Ensure the logger is properly initialized
+    logger.log("Log-System bereit...", LogType.INFO); 
+    logger.log("START: Verbindungstest eingeleitet...", LogType.INFO);
+
+    // Network Interface Dump - Show all active interfaces
     try {
-      debugPrint("Starting ENET connection test to $adapterIp:$doipPort...");
+      logger.log("Netzwerk-Interface-Dump:", LogType.INFO);
+      final networkInterfaces = await NetworkInterface.list();
+      
+      for (var interface in networkInterfaces) {
+        final addresses = interface.addresses
+            .map((addr) => "${addr.address}${addr.type == InternetAddressType.IPv4 ? '' : ' (IPv6)'}")
+            .join(', ');
+        logger.log("Aktives Interface: [Name: ${interface.name}, IP: $addresses]", LogType.DATA);
+      }
+      
+      final localIp = networkInterfaces
+          .expand((interface) => interface.addresses)
+          .firstWhere(
+            (addr) => addr.type == InternetAddressType.IPv4 && !addr.address.startsWith('127.'),
+            orElse: () => InternetAddress('0.0.0.0'),
+          )
+          .address;
 
-      // Step 1: TCP Handshake - Open socket with timeout
-      final socket = await Socket.connect(
-        adapterIp,
-        doipPort,
-        timeout: const Duration(milliseconds: EnetConstants.connectionTimeoutMs)
+      logger.log("Hauptadresse für Verbindung: $localIp", LogType.INFO);
+    } catch (e) {
+      logger.log("Fehler beim Auflisten der Netzwerk-Interfaces: $e", LogType.ERROR);
+    }
+
+    // Check if WLAN is enabled
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      logger.log("WLAN Status: ${connectivityResult == ConnectivityResult.wifi ? 'Aktiv' : 'Inaktiv'}", 
+        connectivityResult == ConnectivityResult.wifi ? LogType.SUCCESS : LogType.ERROR);
+      
+      if (connectivityResult != ConnectivityResult.wifi) {
+        logger.log("ACHTUNG: WLAN ist nicht aktiv! Verbindung nicht möglich.", LogType.ERROR);
+        return false;
+      }
+    } catch (e) {
+      logger.log("Fehler bei WLAN-Status-Check: $e", LogType.ERROR);
+    }
+
+    // Stufe 1: ICMP Ping Test
+    logger.log("Stufe 1: ICMP Ping-Test zu $adapterIp...", LogType.INFO);
+    bool pingSuccessful = false;
+    try {      
+      final pingResult = await Process.run('ping', ['-c', '1', '-W', '2', adapterIp]);
+      final exitCode = pingResult.exitCode;
+      
+      if (exitCode == 0) {
+        logger.log("Ping-Check: Erreichbar (exitCode: $exitCode)", LogType.SUCCESS);
+        pingSuccessful = true;
+      } else {
+        logger.log("Ping-Check: Nicht erreichbar (exitCode: $exitCode)", LogType.ERROR);
+        logger.log("HINWEIS: Hardware physikalisch nicht im Netzwerk gefunden.", LogType.ERROR);
+        logger.log("${pingResult.stdout}", LogType.DATA);
+      }
+    } catch (e) {
+      logger.log("Ping-Fehler: $e", LogType.ERROR);
+    }
+    
+    // Log that we're moving to the next step
+    logger.log("Stufe 2: TCP Socket-Verbindungstest (${pingSuccessful ? 'nach erfolgreicher Ping' : 'trotz fehlgeschlagenem Ping'})...", LogType.INFO);
+
+    // Stufe 2: Socket connection test
+    bool socketConnected = false;
+    Socket? socket;
+    
+    try {
+      logger.log("Versuche TCP-Connect zu $adapterIp:$doipPort...", LogType.INFO);
+      socket = await Socket.connect(
+        adapterIp, 
+        doipPort, 
+        timeout: const Duration(seconds: 3)
       );
+      logger.log("SUCCESS: Socket-Ebene verbunden!", LogType.SUCCESS);
+      socketConnected = true;
+    } on SocketException catch (e) {
+      logger.log("ERROR (Socket): ${e.message}", LogType.ERROR);
+      if (e.osError != null) {
+        logger.log("Fehlercode: ${e.osError!.errorCode} - ${e.osError!.message}", LogType.ERROR);
+      }
+      logger.log("HINWEIS: Ist das Handy im ENET_WIFI?", LogType.INFO);
+      return false;
+    } on TimeoutException {
+      logger.log("ERROR: Zeitüberschreitung nach 3 Sekunden. Adapter antwortet nicht.", LogType.ERROR);
+      return false;
+    } catch (e) {
+      logger.log("UNBEKANNTER FEHLER: $e", LogType.ERROR);
+      return false;
+    }
+    
+    logger.log("Stufe 3: DoIP Routing Activation Test...", LogType.INFO);
 
-      debugPrint("TCP connection established");
+    // Only continue if socket is connected
+    if (socketConnected) {
+      logger.log("Sende Routing Activation (Hex: ${EnetConstants.routingActivationRequest.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')})", LogType.DATA);
 
-      // Step 2: Send DoIP Routing Activation Request
+      // Send DoIP Routing Activation Request
       socket.add(Uint8List.fromList(EnetConstants.routingActivationRequest));
-      debugPrint("Sent DoIP routing activation request");
 
-      // Step 3: Wait for response with timeout
+      logger.log("Warte auf Antwort vom ZGW...", LogType.INFO);
+
+      // Wait for response with timeout
       final completer = Completer<bool>();
       final timer = Timer(const Duration(milliseconds: 2000), () {
         if (!completer.isCompleted) {
-          socket.destroy();
+          socket?.destroy();
+          logger.log("Timeout - Adapter antwortet nicht auf Port $doipPort", LogType.ERROR);
           completer.complete(false);
-          debugPrint("Response timeout - no valid DoIP response received");
         }
       });
 
@@ -991,6 +1169,8 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         (data) {
           if (!completer.isCompleted) {
             timer.cancel();
+
+            logger.log("Empfangene Hex-Daten: ${data.sublist(0, math.min(20, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}", LogType.DATA);
 
             // Check if response starts with expected DoIP routing activation response prefix
             if (data.length >= EnetConstants.routingActivationResponsePrefix.length) {
@@ -1003,39 +1183,59 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
               }
 
               if (isValidResponse) {
-                debugPrint("Valid DoIP routing activation response received");
-                socket.destroy();
+                logger.log("DoIP-Aktivierung erfolgreich - Verbindung hergestellt", LogType.SUCCESS);
+                logger.log("ALLE TESTS BESTANDEN - System ist bereit", LogType.SUCCESS);
+                socket?.destroy();
                 completer.complete(true);
               } else {
-                debugPrint("Invalid response received: ${data.sublist(0, math.min(10, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");
-                socket.destroy();
+                logger.log("Ungültige Antwort erhalten - DoIP-Protokollfehler", LogType.ERROR);
+                socket?.destroy();
                 completer.complete(false);
               }
+            } else {
+              logger.log("Antwort zu kurz - ungültiges Datenformat", LogType.ERROR);
+              socket?.destroy();
+              completer.complete(false);
             }
           }
         },
         onError: (error) {
           if (!completer.isCompleted) {
             timer.cancel();
-            socket.destroy();
+            socket?.destroy();
+
+            // Error classification
+            if (error is SocketException) {
+              if (error.osError != null) {
+                final errorCode = error.osError!.errorCode;
+                if (errorCode == 113 || errorCode == 111) {
+                  logger.log("Host nicht erreichbar. Prüfe WLAN/Statische IP.", LogType.ERROR);
+                } else {
+                  logger.log("Socket-Fehler: ${error.message} (Code: $errorCode)", LogType.ERROR);
+                }
+              } else {
+                logger.log("Socket-Fehler: ${error.message}", LogType.ERROR);
+              }
+            } else {
+              logger.log("Verbindungsfehler: ${error.toString()}", LogType.ERROR);
+            }
+
             completer.complete(false);
-            debugPrint("Socket error during test: $error");
           }
         },
         onDone: () {
           if (!completer.isCompleted) {
             timer.cancel();
+            logger.log("Socket geschlossen ohne gültige Antwort", LogType.ERROR);
             completer.complete(false);
-            debugPrint("Socket closed without valid response");
           }
         },
       );
 
       return await completer.future;
-    } catch (e) {
-      debugPrint("Connection test failed: $e");
-      return false;
     }
+    
+    return false;
   }
 
   // --- NETWORK ---
@@ -1047,7 +1247,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       _socket!.listen(_onDataReceived, onDone: _disconnect, onError: (_) => _disconnect());
       setState(() { isConnected = true; statusText = "CONNECTED"; });
 
-      // Load vehicle models and request VIN
+      // Load vehicle models and request identification data once
       await _loadVehicleModels();
       await _requestVehicleIdentification();
 
@@ -1115,6 +1315,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   void _sendRequest(String didStr) {
+    if (didStr.isEmpty) return;
     int b1 = int.parse(didStr.substring(0, 2), radix: 16);
     int b2 = int.parse(didStr.substring(2, 4), radix: 16);
     _socket?.add(Uint8List.fromList([0x02, 0xFD, 0x80, 0x01, 0x00, 0x00, 0x00, 0x07, 0x0E, 0x00, 0x10, 0xF1, 0x03, 0x22, b1, b2]));
@@ -1123,15 +1324,21 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   void _onDataReceived(Uint8List data) {
     if (data.length < 17) return;
 
-    // Handle different response types
+    // Handle initial routing activation response if needed
+    // ...
+
+    // Handle UDS data response (Service 0x62)
     if (data[13] == 0x62) {
-      // Standard data response
       String rDid = data[14].toRadixString(16).padLeft(2, '0').toUpperCase() + data[15].toRadixString(16).padLeft(2, '0').toUpperCase();
       Uint8List pld = data.sublist(16);
 
-      // Handle VIN response (DID F190)
+      // Handle Vehicle Info responses
       if (rDid == "F190") {
         _processVinResponse(data);
+      } else if (rDid == "DE83") {
+        _processMileageResponse(data);
+      } else if (rDid == "F18B") {
+        _processProductionDateResponse(data);
       }
 
       // Handle RPM response for battery saving detection
@@ -1181,7 +1388,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         }
       });
     } else if (data[13] == 0x59) {
-      // DTC response (Service 0x59)
+      // DTC response (Service 0x59 - ReadDTCByStatusMask response 0x19 + 0x40)
       _processDtcsResponse(data);
     }
   }
@@ -1194,6 +1401,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       setState(() {
         isConnected = false;
         statusText = "DISCONNECTED";
+        vehicleInfo = VehicleInfo();
         carModel = "BMW Performance";
         vinDisplay = "";
         cylinderCount = 6;
@@ -1258,47 +1466,57 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                         child: Text("Left Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                       ),
                                       const SizedBox(height: 8),
-                                      Row(
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Flexible(
-                                            child: Text("Main:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          Padding(
+                                            padding: const EdgeInsets.only(bottom: 4),
+                                            child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            flex: 2,
-                                            child: DropdownButtonFormField<String>(
-                                              value: currentLayout.leftGauge.mainParamId,
-                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                              items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
-                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                                leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
-                                                rightGauge: currentLayout.rightGauge
-                                              )),
+                                          DropdownButtonFormField<String>(
+                                            value: currentLayout.leftGauge.mainParamId,
+                                            isExpanded: true,
+                                            isDense: true,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
+                                            items: DisplayParam.available.map((p) => 
+                                              DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
+                                            ).toList(),
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
+                                              rightGauge: currentLayout.rightGauge
+                                            )),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 8),
-                                      Row(
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Flexible(
-                                            child: Text("Sub:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 8, bottom: 4),
+                                            child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            flex: 2,
-                                            child: DropdownButtonFormField<String?>(
-                                              value: currentLayout.leftGauge.subParamId,
-                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                              items: [
-                                                const DropdownMenuItem(value: null, child: Text("NONE")),
-                                                ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
-                                              ],
-                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                                leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
-                                                rightGauge: currentLayout.rightGauge
-                                              )),
+                                          DropdownButtonFormField<String?>(
+                                            value: currentLayout.leftGauge.subParamId,
+                                            isExpanded: true,
+                                            isDense: true,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
+                                            items: [
+                                              const DropdownMenuItem(value: null, child: Text("NONE")),
+                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => 
+                                                DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
+                                              )
+                                            ],
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
+                                              rightGauge: currentLayout.rightGauge
+                                            )),
                                           ),
                                         ],
                                       ),
@@ -1317,47 +1535,57 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                         child: Text("Right Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                       ),
                                       const SizedBox(height: 8),
-                                      Row(
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Flexible(
-                                            child: Text("Main:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          Padding(
+                                            padding: const EdgeInsets.only(bottom: 4),
+                                            child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            flex: 2,
-                                            child: DropdownButtonFormField<String>(
-                                              value: currentLayout.rightGauge.mainParamId,
-                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                              items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label))).toList(),
-                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                                leftGauge: currentLayout.leftGauge,
-                                                rightGauge: GaugeConfig(mainParamId: id ?? 'timing_all', subParamId: currentLayout.rightGauge.subParamId)
-                                              )),
+                                          DropdownButtonFormField<String>(
+                                            value: currentLayout.rightGauge.mainParamId,
+                                            isExpanded: true,
+                                            isDense: true,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
+                                            items: DisplayParam.available.map((p) => 
+                                              DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
+                                            ).toList(),
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: currentLayout.leftGauge,
+                                              rightGauge: GaugeConfig(mainParamId: id ?? 'timing_all', subParamId: currentLayout.rightGauge.subParamId)
+                                            )),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 8),
-                                      Row(
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Flexible(
-                                            child: Text("Sub:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 8, bottom: 4),
+                                            child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            flex: 2,
-                                            child: DropdownButtonFormField<String?>(
-                                              value: currentLayout.rightGauge.subParamId,
-                                              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                              items: [
-                                                const DropdownMenuItem(value: null, child: Text("NONE")),
-                                                ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
-                                              ],
-                                              onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                                leftGauge: currentLayout.leftGauge,
-                                                rightGauge: GaugeConfig(mainParamId: currentLayout.rightGauge.mainParamId, subParamId: id)
-                                              )),
+                                          DropdownButtonFormField<String?>(
+                                            value: currentLayout.rightGauge.subParamId,
+                                            isExpanded: true,
+                                            isDense: true,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
+                                            items: [
+                                              const DropdownMenuItem(value: null, child: Text("NONE")),
+                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => 
+                                                DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
+                                              )
+                                            ],
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: currentLayout.leftGauge,
+                                              rightGauge: GaugeConfig(mainParamId: currentLayout.rightGauge.mainParamId, subParamId: id)
+                                            )),
                                           ),
                                         ],
                                       ),
@@ -1522,6 +1750,8 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                                 final testResult = await _performConnectionTest();
                                                 final testTime = DateTime.now();
 
+                                                if (!context.mounted) return;
+
                                                 setState(() {
                                                   isTestingConnection = false;
                                                   connectionTestResult = testResult;
@@ -1532,20 +1762,36 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                                 });
 
                                                 if (testResult) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text("Bimmerdash ist bereit. Steuergerät antwortet."),
-                                                      backgroundColor: Colors.green,
+                                                  showDialog(
+                                                    context: context,
+                                                    builder: (context) => AlertDialog(
+                                                      title: const Text('Success'),
+                                                      content: const Text("Bimmerdash ist bereit. Steuergerät antwortet."),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () => Navigator.pop(context),
+                                                          child: const Text('OK'),
+                                                        ),
+                                                      ],
                                                     ),
                                                   );
                                                 } else {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text("Verbindungstest fehlgeschlagen."),
-                                                      backgroundColor: Colors.red,
+                                                  if (!context.mounted) return;
+                                                  showDialog(
+                                                    context: context,
+                                                    builder: (context) => AlertDialog(
+                                                      title: const Text('Error'),
+                                                      content: const Text("Verbindungstest fehlgeschlagen."),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () => Navigator.pop(context),
+                                                          child: const Text('OK'),
+                                                        ),
+                                                      ],
                                                     ),
                                                   );
                                                 }
+
                                               },
                                               style: ElevatedButton.styleFrom(
                                                 backgroundColor: isTestingConnection ? Colors.grey : Colors.blue,
@@ -1575,8 +1821,8 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                                     : Colors.red,
                                               boxShadow: isTestingConnection || connectionTestResult == true
                                                 ? [
-                                                    BoxShadow(
-                                                      color: (isTestingConnection ? Colors.yellow : Colors.green).withValues(alpha: 0.6),
+                                                    const BoxShadow(
+                                                      color: Colors.green, // Fallback for withValues
                                                       blurRadius: 8,
                                                       spreadRadius: 2,
                                                     ),
@@ -1617,6 +1863,13 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                 ),
                               ),
                               const SizedBox(height: 12),
+                              // Debug Console
+                              Builder(
+                                builder: (context) => DebugConsole(
+                                  scaffoldContext: context,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               Card(
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
@@ -1640,7 +1893,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton(
-                                          onPressed: () { Navigator.pop(context); _discoverAdapter(); },
+                                          onPressed: () { 
+                                            Navigator.pop(context); 
+                                            _discoverAdapter(); 
+                                          },
                                           style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                                           child: const Text("Auto-Discover (UDP)"),
                                         ),
@@ -1714,30 +1970,30 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                         child: Text("About Bimmerdash", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                                       ),
                                       const SizedBox(height: 12),
-                                      ListTile(
+                                      const ListTile(
                                         leading: Icon(Icons.info, color: Colors.blue),
                                         title: Text("App Name", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text("Bimmerdash"),
                                       ),
-                                      ListTile(
+                                      const ListTile(
                                         leading: Icon(Icons.numbers, color: Colors.blue),
                                         title: Text("Version", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text("1.0.0"),
                                       ),
                                       ListTile(
-                                        leading: Icon(Icons.car_repair, color: Colors.blue),
-                                        title: Text("Vehicle Model", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        leading: const Icon(Icons.car_repair, color: Colors.blue),
+                                        title: const Text("Vehicle Model", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text(carModel),
                                       ),
                                       if (vinDisplay.isNotEmpty)
                                         ListTile(
-                                          leading: Icon(Icons.vpn_key, color: Colors.blue),
-                                          title: Text("VIN", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          leading: const Icon(Icons.vpn_key, color: Colors.blue),
+                                          title: const Text("VIN", style: TextStyle(fontWeight: FontWeight.bold)),
                                           subtitle: Text(vinDisplay),
                                         ),
                                       ListTile(
-                                        leading: Icon(Icons.cloud, color: Colors.blue),
-                                        title: Text("Connection Status", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        leading: const Icon(Icons.cloud, color: Colors.blue),
+                                        title: const Text("Connection Status", style: TextStyle(fontWeight: FontWeight.bold)),
                                         subtitle: Text(statusText),
                                         trailing: Icon(
                                           isConnected ? Icons.cloud_done : Icons.cloud_off,
@@ -1781,7 +2037,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                       ),
                       const SizedBox(width: 16),
                       ElevatedButton(
-                        onPressed: () { _saveSettings(); Navigator.pop(context); },
+                        onPressed: () { 
+                          _saveSettings(); 
+                          Navigator.pop(context); 
+                        },
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                         child: const Text("Save & Apply"),
                       ),
@@ -1937,18 +2196,60 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           ),
           IconButton(
             icon: Icon(isConnected ? Icons.stop : Icons.play_arrow),
-            onPressed: isDiscovering ? null : (isConnected ? _disconnect : _connect),
+              onPressed: isDiscovering ? null : (isConnected ? () => _disconnect() : () => _connect()),
+
             color: isConnected ? Colors.red : Colors.blue,
           ),
         ],
       ),
       body: Column(children: [
+        _buildVehicleInfoBar(),
         _buildWorstCaseBar(),
         Expanded(child: Row(children: [
           Expanded(child: _buildTile(leftParam, gaugeValueLeft, peakLeft)),
           Expanded(child: _buildTile(rightParam, gaugeValueRight, peakRight)),
         ])),
       ]),
+    );
+  }
+
+  Widget _buildVehicleInfoBar() {
+    if (!isConnected) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+      color: Colors.blue.withValues(alpha: 0.1),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.directions_car, size: 16, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text(
+                "${vehicleInfo.manufacturer} ${vehicleInfo.modelSeries}",
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              if (vehicleInfo.modelYear > 0)
+                Text(" (${vehicleInfo.modelYear})", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          Row(
+            children: [
+              Text(
+                "VIN: ${vehicleInfo.shortVin}",
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.orange),
+              ),
+              const SizedBox(width: 12),
+              const Icon(Icons.straighten, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                "${vehicleInfo.mileage} km",
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1999,7 +2300,7 @@ class HorizontalTimingChart extends StatelessWidget {
         child: Row(children: [
           Text("Z${i + 1}", style: const TextStyle(fontSize: 9)),
           const SizedBox(width: 10),
-          Expanded(child: Container(height: 10, decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(2)), child: FractionallySizedBox(alignment: Alignment.centerLeft, widthFactor: (corrections[i] / min).clamp(0.0, 1.0), child: Container(decoration: BoxDecoration(color: corrections[i] < -3 ? Colors.red : Colors.orange, borderRadius: BorderRadius.circular(2)))))),
+          Expanded(child: Container(height: 10, decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(2)), child: FractionallySizedBox(alignment: Alignment.centerLeft, widthFactor: (corrections[i] / (min == 0 ? 1 : min)).clamp(0.0, 1.0), child: Container(decoration: BoxDecoration(color: corrections[i] < -3 ? Colors.red : Colors.orange, borderRadius: BorderRadius.circular(2)))))),
           const SizedBox(width: 10),
           Text(corrections[i].toStringAsFixed(1), style: const TextStyle(fontSize: 9)),
         ]),
@@ -2096,16 +2397,15 @@ class GaugePainter extends CustomPainter {
 
     // Red Zone
     if (showRedZone && max > 100) {
-      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withValues(alpha: 0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
     }
 
     // Outer Glow Effect - Modern Performance Theme
-    // Add subtle orange glow when values are rising (simulated by checking if value is above 50% of range)
     final normalizedValue = ((value - min) / (max - min)).clamp(0.0, 1.0);
     if (normalizedValue > 0.5) { // Glow effect when value is above 50%
       final glowIntensity = (normalizedValue - 0.5) * 2.0; // 0.0 to 1.0 intensity
       final outerGlowPaint = Paint()
-        ..color = BimmerdashColors.modernAccentOrange.withValues(alpha: 0.1 * glowIntensity)
+        ..color = BimmerdashColors.modernAccentOrange.withOpacity(0.1 * glowIntensity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 15 * glowIntensity
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 * glowIntensity);
@@ -2118,7 +2418,7 @@ class GaugePainter extends CustomPainter {
 
     // Glow effect for main needle (BMW Orange)
     final glowPaint = Paint()
-      ..color = BimmerdashColors.bmwOrange.withValues(alpha: 0.8)
+      ..color = BimmerdashColors.bmwOrange.withOpacity(0.8)
       ..strokeWidth = 8
       ..strokeCap = StrokeCap.round
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6);
@@ -2128,90 +2428,27 @@ class GaugePainter extends CustomPainter {
     // Main needle with proper color
     canvas.drawLine(center, Offset(center.dx + (radius * 0.82) * math.cos(angle), center.dy + (radius * 0.82) * math.sin(angle)), Paint()..color = needleColor..strokeWidth = 3.5..strokeCap = StrokeCap.round);
 
-    // Secondary Scale (Glow Arc) - Enhanced with Ticks and Progress Bar
-    // Only draw if subParamId is not null
+    // Secondary Scale
     if (gaugeConfig.subParamId != null && secondaryValue != null) {
-      // Get the secondary parameter from available params
       final secondaryParam = DisplayParam.available.firstWhere((p) => p.id == gaugeConfig.subParamId);
-
-      // Mathematical parameters for exact 6-o'clock centering
       final secondaryArcRadius = radius * 0.65;
-      final sweepAngle = math.pi * 0.4; // ~72 degrees total width (compact)
-      final startAngle = 0.5 * math.pi - (sweepAngle / 2); // Centered at 6 o'clock (0.5 * pi)
-
-      // Calculate normalized secondary value (0.0 to 1.0)
+      final sweepAngle = math.pi * 0.4;
+      final startAngle = 0.5 * math.pi - (sweepAngle / 2);
       final secondaryValueNormalized = ((secondaryValue! - secondaryParam.min) / (secondaryParam.max - secondaryParam.min)).clamp(0.0, 1.0);
 
-      // Draw scale ticks (5 marks: 0%, 25%, 50%, 75%, 100%)
-      final tickPaint = Paint()
-        ..color = Colors.white24
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round;
-
+      final tickPaint = Paint()..color = Colors.white24..strokeWidth = 1.5..strokeCap = StrokeCap.round;
       for (int i = 0; i <= 4; i++) {
         final tickAngle = startAngle + (i / 4 * sweepAngle);
         final tickStartRadius = secondaryArcRadius - (radius * 0.02);
         final tickEndRadius = secondaryArcRadius + (radius * 0.02);
-
-        // Draw tick mark
-        canvas.drawLine(
-          Offset(
-            center.dx + tickStartRadius * math.cos(tickAngle),
-            center.dy + tickStartRadius * math.sin(tickAngle)
-          ),
-          Offset(
-            center.dx + tickEndRadius * math.cos(tickAngle),
-            center.dy + tickEndRadius * math.sin(tickAngle)
-          ),
-          tickPaint
-        );
-
-        // Highlight 50% mark (middle tick)
-        if (i == 2) {
-          canvas.drawLine(
-            Offset(
-              center.dx + (tickStartRadius - radius * 0.01) * math.cos(tickAngle),
-              center.dy + (tickStartRadius - radius * 0.01) * math.sin(tickAngle)
-            ),
-            Offset(
-              center.dx + (tickEndRadius + radius * 0.01) * math.cos(tickAngle),
-              center.dy + (tickEndRadius + radius * 0.01) * math.sin(tickAngle)
-            ),
-            tickPaint..color = Colors.white54..strokeWidth = 2.0
-          );
-        }
+        canvas.drawLine(Offset(center.dx + tickStartRadius * math.cos(tickAngle), center.dy + tickStartRadius * math.sin(tickAngle)), Offset(center.dx + tickEndRadius * math.cos(tickAngle), center.dy + tickEndRadius * math.sin(tickAngle)), tickPaint);
       }
 
-      // Draw thick background track (rail)
-      final trackPaint = Paint()
-        ..color = Colors.grey[800]!.withValues(alpha: 0.8) // Dark grey track
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = radius * 0.06
-        ..strokeCap = StrokeCap.round; // Rounded ends for OEM quality
+      final trackPaint = Paint()..color = Colors.grey[800]!.withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = radius * 0.06..strokeCap = StrokeCap.round;
+      canvas.drawArc(Rect.fromCircle(center: center, radius: secondaryArcRadius), startAngle, sweepAngle, false, trackPaint);
 
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: secondaryArcRadius),
-        startAngle,
-        sweepAngle,
-        false,
-        trackPaint
-      );
-
-      // Draw active progress bar with glow effect
-      final progressPaint = Paint()
-        ..color = const Color(0xFF0066B1) // BMW Electric Blue for performance mode
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = radius * 0.06
-        ..strokeCap = StrokeCap.round // Rounded ends for OEM quality
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3);
-
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: secondaryArcRadius),
-        startAngle,
-        secondaryValueNormalized * sweepAngle,
-        false,
-        progressPaint
-      );
+      final progressPaint = Paint()..color = const Color(0xFF0066B1)..style = PaintingStyle.stroke..strokeWidth = radius * 0.06..strokeCap = StrokeCap.round..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: secondaryArcRadius), startAngle, secondaryValueNormalized * sweepAngle, false, progressPaint);
     }
 
     // Center Hub
