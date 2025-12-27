@@ -1332,37 +1332,80 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         }
       });
 
+      int testStage = 0; // 0 = Activation, 1 = VIN Query
+
       socket.listen(
         (data) {
-          if (!completer.isCompleted) {
-            timer.cancel();
+          logger.log("Empfangene Hex-Daten: ${data.sublist(0, math.min(20, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}", LogType.data);
 
-            logger.log("Empfangene Hex-Daten: ${data.sublist(0, math.min(20, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}", LogType.data);
-
-            // Check if response starts with expected DoIP routing activation response prefix
-            if (data.length >= EnetConstants.routingActivationResponsePrefix.length) {
-              bool isValidResponse = true;
-              for (int i = 0; i < EnetConstants.routingActivationResponsePrefix.length; i++) {
-                if (data[i] != EnetConstants.routingActivationResponsePrefix[i]) {
-                  isValidResponse = false;
-                  break;
+          if (testStage == 0) {
+            // Stage 4: Routing Activation Check
+            if (data.length >= 4 &&
+                data[0] == 0x02 && data[1] == 0xFD && data[2] == 0x80 && data[3] == 0x02) {
+              
+              logger.log("DoIP-Aktivierung erfolgreich - Verbindung hergestellt", LogType.SUCCESS);
+              
+              // Stage 5: VIN Query (The Crowning)
+              logger.log("Stufe 5: VIN-Abfrage (UDS via DoIP)...", LogType.INFO);
+              
+              // Send Read VIN Command (Service 22 F1 90)
+              // Header (8) + Source (2) + Target (2) + Length (1) + Service (3)
+              // Target 10 F1 seems standard for ZGW/Gateway
+              final vinRequest = Uint8List.fromList([
+                0x02, 0xFD, 0x80, 0x01, 0x00, 0x00, 0x00, 0x07, // Header
+                0x0E, 0x00, // Source (Tester)
+                0x10, 0x00, // Target (ZGW/ECU) - Using 10 00 as generic ZGW
+                0x03,       // Length of UDS payload
+                0x22, 0xF1, 0x90 // ReadDataByIdentifier VIN
+              ]);
+              
+              socket?.add(vinRequest);
+              testStage = 1;
+              
+              // Extend timeout for VIN response
+              timer.cancel();
+              // Create new timer for VIN timeout
+              Future.delayed(const Duration(seconds: 3), () {
+                if (!completer.isCompleted) {
+                   logger.log("Verbindung steht, aber UDS-Antwort fehlt (Zündung an?)", LogType.ERROR);
+                   socket?.destroy();
+                   completer.complete(true); // Partial success (Connection OK, VIN fail)
                 }
-              }
-
-              if (isValidResponse) {
-                logger.log("DoIP-Aktivierung erfolgreich - Verbindung hergestellt", LogType.SUCCESS);
-                logger.log("ALLE TESTS BESTANDEN - System ist bereit", LogType.SUCCESS);
-                socket?.destroy();
-                completer.complete(true);
-              } else {
-                logger.log("Ungültige Antwort erhalten - DoIP-Protokollfehler", LogType.ERROR);
+              });
+              
+            } else {
+              if (!completer.isCompleted) {
+                timer.cancel();
+                logger.log("Ungültige Aktivierungs-Antwort erhalten", LogType.ERROR);
                 socket?.destroy();
                 completer.complete(false);
               }
-            } else {
-              logger.log("Antwort zu kurz - ungültiges Datenformat", LogType.ERROR);
-              socket?.destroy();
-              completer.complete(false);
+            }
+          } else if (testStage == 1) {
+            // Check for UDS Response (62 F1 90)
+            // DoIP Header: 02 FD 80 01 ...
+            if (data.length > 15) { // Need enough bytes for VIN
+               // Check if it's a positive response to 22 F1 90 -> 62 F1 90
+               // Byte 12 is usually Service response?
+               // Let's decode from byte 15 as requested
+               try {
+                 // Decode bytes 15..31 (17 chars)
+                 int startIndex = 15;
+                 if (startIndex + 17 <= data.length) {
+                   String vin = String.fromCharCodes(data.sublist(startIndex, startIndex + 17));
+                   logger.log("Fahrzeug erkannt: $vin", LogType.SUCCESS);
+                   logger.log("ALLE TESTS BESTANDEN - System ist bereit", LogType.SUCCESS);
+                 } else {
+                   logger.log("Antwort erhalten, aber zu kurz für VIN decoding.", LogType.INFO);
+                 }
+               } catch (e) {
+                 logger.log("Fehler beim Dekodieren der VIN: $e", LogType.ERROR);
+               }
+               
+               if (!completer.isCompleted) {
+                 socket?.destroy();
+                 completer.complete(true);
+               }
             }
           }
         },
