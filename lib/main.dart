@@ -1343,10 +1343,99 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   // --- NETWORK ---
+  /// Send UDP wakeup packet to trigger the ENET adapter
+  Future<void> _sendUdpWakeup() async {
+    try {
+      debugPrint("Sende UDP-Wakeup-Paket...");
+
+      // Create a raw datagram socket for UDP broadcast
+      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      socket.broadcastEnabled = true;
+
+      // Vehicle Identification Request payload
+      final payload = Uint8List.fromList([0x02, 0xFD, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+      // Send broadcast to 255.255.255.255 on port 13400
+      socket.send(payload, InternetAddress("255.255.255.255"), 13400);
+
+      debugPrint("UDP-Wakeup-Paket gesendet. Warte auf Port-Freigabe...");
+
+      // Wait for response (300ms timeout)
+      final completer = Completer<void>();
+      final timer = Timer(const Duration(milliseconds: 300), () {
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      });
+
+      // Listen for any response
+      socket.listen((event) {
+        if (!completer.isCompleted) {
+          timer.cancel();
+          debugPrint("UDP-Antwort erhalten - Adapter ist bereit");
+          completer.complete();
+        }
+      });
+
+      await completer.future;
+      socket.close();
+    } catch (e) {
+      debugPrint("UDP-Wakeup fehlgeschlagen: $e");
+      // Continue even if UDP fails - it's just a wakeup trigger
+    }
+  }
+
+  /// Optimized TCP connection with retry logic
+  Future<Socket> _connectWithRetry() async {
+    int retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = Duration(seconds: 1);
+
+    while (retryCount < maxRetries) {
+      try {
+        debugPrint("TCP-Verbindungsversuch ${retryCount + 1}/$maxRetries...");
+        // Connect using IPv4 address
+        final socket = await Socket.connect(
+          adapterIp,
+          doipPort,
+          timeout: const Duration(seconds: 3),
+        );
+        debugPrint("TCP-Verbindung erfolgreich!");
+        return socket;
+      } on SocketException catch (e) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          debugPrint("Verbindung fehlgeschlagen: ${e.message}. Warte ${retryDelay.inSeconds}s...");
+          await Future.delayed(retryDelay);
+        } else {
+          debugPrint("Maximale Wiederholungen erreicht. Verbindung fehlgeschlagen.");
+          throw Exception("Connection refused after $maxRetries attempts");
+        }
+      } catch (e) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          debugPrint("Verbindungsfehler: $e. Warte ${retryDelay.inSeconds}s...");
+          await Future.delayed(retryDelay);
+        } else {
+          debugPrint("Maximale Wiederholungen erreicht. Verbindung fehlgeschlagen.");
+          throw Exception("Connection failed after $maxRetries attempts: $e");
+        }
+      }
+    }
+    throw Exception("Connection failed after $maxRetries attempts");
+  }
+
   Future<void> _connect() async {
     try {
       setState(() => statusText = "CONNECTING...");
-      _socket = await Socket.connect(adapterIp, doipPort, timeout: const Duration(seconds: 3));
+
+      // Step 1: Send UDP wakeup packet
+      await _sendUdpWakeup();
+
+      // Step 2: Establish TCP connection with retry logic
+      _socket = await _connectWithRetry();
+
+      // Step 3: Send initial DoIP routing activation
       _socket!.add(Uint8List.fromList([0x02, 0xFD, 0x00, 0x05, 0x00, 0x00, 0x00, 0x07, 0x0E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
       _socket!.listen(_onDataReceived, onDone: _disconnect, onError: (_) => _disconnect());
       setState(() { isConnected = true; statusText = "CONNECTED"; });
@@ -1415,7 +1504,11 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           _sendRequest(rpmDid);
         }
       });
-    } catch (e) { setState(() => statusText = "FAILED"); _disconnect(); }
+    } catch (e) {
+      debugPrint("Verbindung fehlgeschlagen: $e");
+      setState(() => statusText = "FAILED");
+      _disconnect();
+    }
   }
 
   void _sendRequest(String didStr) {
