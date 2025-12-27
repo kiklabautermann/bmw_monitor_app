@@ -1343,10 +1343,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   // --- NETWORK ---
-  /// Send UDP wakeup packet to trigger the ENET adapter
+  /// Send DoIP UDP wakeup packet to trigger the ENET adapter
   Future<void> _sendUdpWakeup() async {
     try {
-      debugPrint("Sende UDP-Wakeup-Paket...");
+      debugPrint("Sende DoIP UDP-Wakeup...");
 
       // Create a raw datagram socket for UDP broadcast
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -1358,29 +1358,14 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       // Send broadcast to 255.255.255.255 on port 13400
       socket.send(payload, InternetAddress("255.255.255.255"), 13400);
 
-      debugPrint("UDP-Wakeup-Paket gesendet. Warte auf Port-Freigabe...");
+      debugPrint("Warte auf Adapter-Reaktion (500ms)...");
 
-      // Wait for response (300ms timeout)
-      final completer = Completer<void>();
-      final timer = Timer(const Duration(milliseconds: 300), () {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      });
+      // Wait 500ms for adapter to route TCP stack internally
+      await Future.delayed(const Duration(milliseconds: 500));
 
-      // Listen for any response
-      socket.listen((event) {
-        if (!completer.isCompleted) {
-          timer.cancel();
-          debugPrint("UDP-Antwort erhalten - Adapter ist bereit");
-          completer.complete();
-        }
-      });
-
-      await completer.future;
       socket.close();
     } catch (e) {
-      debugPrint("UDP-Wakeup fehlgeschlagen: $e");
+      debugPrint("DoIP UDP-Wakeup fehlgeschlagen: $e");
       // Continue even if UDP fails - it's just a wakeup trigger
     }
   }
@@ -1405,7 +1390,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       } on SocketException catch (e) {
         retryCount++;
         if (retryCount < maxRetries) {
-          debugPrint("Verbindung fehlgeschlagen: ${e.message}. Warte ${retryDelay.inSeconds}s...");
+          debugPrint("Retry [$retryCount] nach Connection Refused...");
           await Future.delayed(retryDelay);
         } else {
           debugPrint("Maximale Wiederholungen erreicht. Verbindung fehlgeschlagen.");
@@ -1414,7 +1399,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       } catch (e) {
         retryCount++;
         if (retryCount < maxRetries) {
-          debugPrint("Verbindungsfehler: $e. Warte ${retryDelay.inSeconds}s...");
+          debugPrint("Retry [$retryCount] nach Connection Refused...");
           await Future.delayed(retryDelay);
         } else {
           debugPrint("Maximale Wiederholungen erreicht. Verbindung fehlgeschlagen.");
