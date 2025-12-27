@@ -1161,7 +1161,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     logger.log("Log-System bereit...", LogType.INFO); 
     logger.log("START: Verbindungstest eingeleitet...", LogType.INFO);
 
-    // Network Interface Dump - Show all active interfaces
+    // Network Interface Dump & Subnet Check
     try {
       logger.log("Netzwerk-Interface-Dump:", LogType.INFO);
       final networkInterfaces = await NetworkInterface.list();
@@ -1182,6 +1182,12 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           .address;
 
       logger.log("Hauptadresse für Verbindung: $localIp", LogType.INFO);
+
+      // Subnet-Validierung (Pre-Flight Check)
+      if (!localIp.startsWith("192.168.16.")) {
+        logger.log("STOPP: Falsches Subnetz! Dein Handy hat $localIp, benötigt wird 192.168.16.xxx. Bitte prüfe die statische IP-Konfiguration oder das WLAN.", LogType.ERROR);
+        return false;
+      }
     } catch (e) {
       logger.log("Fehler beim Auflisten der Netzwerk-Interfaces: $e", LogType.ERROR);
     }
@@ -1224,7 +1230,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
     // Stufe 2: UDP Discovery
     try {
-      logger.log("Sende UDP DoIP Discovery...", LogType.INFO);
+      logger.log("Sende DoIP UDP-Wakeup...", LogType.INFO);
 
       // Create a raw datagram socket for UDP broadcast
       final udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -1268,6 +1274,9 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         logger.log("SUCCESS: Socket-Ebene verbunden!", LogType.SUCCESS);
         socketConnected = true;
       } on SocketException catch (e) {
+        if (e.osError != null && e.osError!.errorCode == 111) {
+           logger.log("Adapter lehnt Verbindung ab – evtl. blockiert eine andere App (BimmerCode?) den Port.", LogType.ERROR);
+        }
         retryCount++;
         if (retryCount < maxRetries) {
           logger.log("Retry [$retryCount] nach Connection Refused...", LogType.INFO);
@@ -1401,7 +1410,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   /// Send DoIP UDP discovery (wake-up) packet to trigger the ENET adapter
   Future<void> _sendUdpDiscovery() async {
     try {
-      debugPrint("Sende UDP DoIP Discovery...");
+      debugPrint("Sende DoIP UDP-Wakeup...");
 
       // Create a raw datagram socket for UDP broadcast
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -1442,7 +1451,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         socket.setOption(SocketOption.tcpNoDelay, true);
         debugPrint("TCP-Verbindung erfolgreich!");
         return socket;
-      } on SocketException {
+      } on SocketException catch (e) {
+        if (e.osError != null && e.osError!.errorCode == 111) {
+           debugPrint("Adapter lehnt Verbindung ab – evtl. blockiert eine andere App (BimmerCode?) den Port.");
+        }
         retryCount++;
         if (retryCount < maxRetries) {
           debugPrint("Retry [$retryCount] nach Connection Refused...");
@@ -1531,6 +1543,30 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   Future<void> _connect() async {
     try {
       setState(() => statusText = "CONNECTING...");
+
+      // Pre-Flight Check: Subnet Validation
+      try {
+        final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+        String? localIp;
+        for (var interface in interfaces) {
+          for (var addr in interface.addresses) {
+            if (!addr.isLoopback) localIp = addr.address;
+          }
+        }
+        
+        if (localIp != null && !localIp.startsWith("192.168.16.")) {
+           debugPrint("STOPP: Falsches Subnetz! Dein Handy hat $localIp, benötigt wird 192.168.16.xxx.");
+           if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(content: Text("Falsches Subnetz! IP ist $localIp. Benötigt: 192.168.16.x"), backgroundColor: Colors.red),
+             );
+           }
+           setState(() => statusText = "WRONG SUBNET");
+           return;
+        }
+      } catch (e) {
+        debugPrint("Fehler beim IP-Check: $e");
+      }
 
       // Step 1: Send UDP discovery (wake-up)
       await _sendUdpDiscovery();
