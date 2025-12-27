@@ -1,12 +1,11 @@
-/**
- * Bimmerdash - BMW Enthusiast Dashboard
- *
- * A comprehensive vehicle monitoring application for BMW enthusiasts.
- * Provides real-time vehicle data, diagnostics, and performance monitoring.
- *
- * This is an independent enthusiast project and is not affiliated with,
- * sponsored by, or endorsed by BMW AG.
- */
+/// Bimmerdash - BMW Enthusiast Dashboard
+///
+/// A comprehensive vehicle monitoring application for BMW enthusiasts.
+/// Provides real-time vehicle data, diagnostics, and performance monitoring.
+///
+/// This is an independent enthusiast project and is not affiliated with,
+/// sponsored by, or endorsed by BMW AG.
+library;
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
@@ -61,12 +60,10 @@ class MyApp extends StatelessWidget {
           primary: BimmerdashColors.modernAccentOrange,
           secondary: BimmerdashColors.modernTextGray,
           surface: BimmerdashColors.modernDeepBlue,
-          background: BimmerdashColors.modernDeepBlue,
           error: BimmerdashColors.redZone,
           onPrimary: BimmerdashColors.modernDeepBlue,
           onSecondary: BimmerdashColors.modernDeepBlue,
           onSurface: BimmerdashColors.modernTextGray,
-          onBackground: BimmerdashColors.modernTextGray,
           onError: BimmerdashColors.modernTextGray,
         ),
         fontFamily: 'Roboto',
@@ -95,6 +92,28 @@ class VehicleInfo {
   });
 
   String get shortVin => vin.length >= 7 ? vin.substring(vin.length - 7) : vin;
+
+  factory VehicleInfo.fromJson(Map<String, dynamic> json) {
+    return VehicleInfo(
+      vin: json['vin'] ?? "",
+      mileage: json['mileage'] ?? 0,
+      productionDate: json['productionDate'] ?? "",
+      modelSeries: json['modelSeries'] ?? "Unbekannt",
+      manufacturer: json['manufacturer'] ?? "BMW",
+      modelYear: json['modelYear'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'vin': vin,
+      'mileage': mileage,
+      'productionDate': productionDate,
+      'modelSeries': modelSeries,
+      'manufacturer': manufacturer,
+      'modelYear': modelYear,
+    };
+  }
 }
 
 class DashboardLayout {
@@ -313,13 +332,11 @@ class BimmerdashApp extends StatelessWidget {
         colorScheme: ColorScheme.dark(
           primary: BimmerdashColors.bmwOrange,
           secondary: BimmerdashColors.silverGray,
-          surface: BimmerdashColors.darkSurface,
-          background: BimmerdashColors.deepNavyBlue,
+          surface: BimmerdashColors.deepNavyBlue,
           error: BimmerdashColors.redZone,
           onPrimary: BimmerdashColors.deepNavyBlue,
           onSecondary: BimmerdashColors.deepNavyBlue,
           onSurface: BimmerdashColors.silverGray,
-          onBackground: BimmerdashColors.silverGray,
           onError: BimmerdashColors.silverGray,
         ),
 
@@ -678,6 +695,13 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         setState(() {
           adapterIp = json['ip'] ?? "192.168.16.103";
           doipPort = json['port'] ?? 13400;
+          
+          if (json['vehicle_info'] != null) {
+            vehicleInfo = VehicleInfo.fromJson(json['vehicle_info']);
+            carModel = vehicleInfo.modelSeries;
+            vinDisplay = vehicleInfo.vin;
+          }
+
           // Load current layout with backward compatibility
           currentLayout = DashboardLayout(
             leftGauge: GaugeConfig(
@@ -720,30 +744,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       'right_id': currentLayout.rightGauge.mainParamId,
       'right_sub_id': currentLayout.rightGauge.subParamId,
       'user_presets': userPresets,
+      'vehicle_info': vehicleInfo.toJson(),
     }));
   }
 
-  // --- UDP DISCOVERY ---
-  Future<void> _discoverAdapter() async {
-    setState(() { isDiscovering = true; statusText = "SCANNING..."; });
-    try {
-      RawDatagramSocket udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      udpSocket.broadcastEnabled = true;
-      udpSocket.send(Uint8List.fromList([0x02, 0xFD, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]), InternetAddress("255.255.255.255"), 13400);
-
-      udpSocket.listen((RawSocketEvent event) {
-        if (event == RawSocketEvent.read) {
-          Datagram? dg = udpSocket.receive();
-          if (dg != null && dg.data.length >= 8) {
-            setState(() { adapterIp = dg.address.address; isDiscovering = false; statusText = "FOUND: $adapterIp"; });
-            udpSocket.close();
-            _saveSettings();
-          }
-        }
-      });
-      Future.delayed(const Duration(seconds: 3), () { if (isDiscovering) { udpSocket.close(); setState(() { isDiscovering = false; statusText = "NOT FOUND"; }); } });
-    } catch (e) { setState(() { isDiscovering = false; statusText = "UDP ERROR"; }); }
-  }
 
   // --- VEHICLE RECOGNITION ---
   Future<void> _loadVehicleModels() async {
@@ -779,8 +783,9 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     // Extract VIN from response (ASCII bytes)
     Uint8List vinBytes = data.sublist(16);
     String vin = String.fromCharCodes(vinBytes).trim();
+    if (vin.length > 17) vin = vin.substring(0, 17);
 
-    // Decode VIN
+    // Decode VIN Manufacturer
     String manufacturer = "Unknown";
     if (vin.startsWith("WBA") || vin.startsWith("WBS") || vin.startsWith("WBY")) {
       manufacturer = "BMW";
@@ -788,10 +793,27 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       manufacturer = "MINI";
     }
 
-    String modelSeries = "Unbekannt";
+    // Decode Model Series using first 7 characters
+    String modelSeries = "BMW (Unbekanntes Modell)";
     if (vin.length >= 7) {
-      String modelCode = vin.substring(3, 7);
-      modelSeries = _modelDb[modelCode] ?? "Code: $modelCode";
+      String modelCode = vin.substring(0, 7);
+      // Try to find a match in our simplified map
+      // WBA3R -> BMW 3er, etc.
+      if (modelCode.startsWith("WBA3") || modelCode.startsWith("WBS3")) {
+        modelSeries = "BMW 3er";
+      } else if (modelCode.startsWith("WBA1") || modelCode.startsWith("WBS1")) {
+        modelSeries = "BMW 1er";
+      } else if (modelCode.startsWith("WBA5") || modelCode.startsWith("WBS5")) {
+        modelSeries = "BMW 5er";
+      } else if (modelCode.startsWith("WBAF")) {
+        modelSeries = "BMW F-Serie";
+      }
+      
+      // Also check against assets/models.json if loaded
+      String innerCode = vin.substring(3, 7);
+      if (_modelDb.containsKey(innerCode)) {
+        modelSeries = _modelDb[innerCode]!;
+      }
     }
 
     // Model Year (10th character)
@@ -801,11 +823,13 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       const years = "ABCDEFGHJKLMNPRSTVWXY123456789";
       int idx = years.indexOf(yearChar);
       if (idx != -1) {
-        if (idx < 21) {
-          year = 1980 + idx + (idx >= 8 ? 0 : 0); // Roughly
-          year = 2010 + idx - 21; // Post-2010
-          // Simplified for now: map it correctly to 1980-2009 or 2010-2039
-          // This is just a rough extraction as requested.
+        // Simple mapping for modern cars (approximate)
+        if (idx < 10) { // A-J: 2010-2018 approx
+           year = 2010 + idx;
+        } else if (idx < 20) { // K-Y: 2019-2030 approx
+           year = 2010 + idx;
+        } else { // 1-9: 2001-2009
+           year = 2000 + (idx - 20) + 1;
         }
       }
     }
@@ -823,14 +847,15 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           modelYear: year,
         );
         
-        // Update cylinder count based on model
+        // Update cylinder count based on model series
         int cylinders = 6;
-        if (modelSeries.contains(RegExp(r'(120i|125i|135i|230i|320i|330i|420i|430i|MINI)'))) {
+        if (modelSeries.contains(RegExp(r'(120|125|320|330|420|430|MINI)', caseSensitive: false))) {
           cylinders = 4;
         }
         cylinderCount = cylinders;
         cylinderCorrections = List.filled(cylinders, 0.0);
       });
+      _saveSettings();
     }
   }
 
@@ -838,34 +863,42 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     if (data.length < 17 || data[13] != 0x62) return;
     Uint8List pld = data.sublist(16);
     if (pld.length >= 3) {
+      // Decode 3-byte mileage (km)
       int mileage = (pld[0] << 16) | (pld[1] << 8) | pld[2];
-      setState(() {
-        vehicleInfo = VehicleInfo(
-          vin: vehicleInfo.vin,
-          mileage: mileage,
-          productionDate: vehicleInfo.productionDate,
-          modelSeries: vehicleInfo.modelSeries,
-          manufacturer: vehicleInfo.manufacturer,
-          modelYear: vehicleInfo.modelYear,
-        );
-      });
+      if (mounted) {
+        setState(() {
+          vehicleInfo = VehicleInfo(
+            vin: vehicleInfo.vin,
+            mileage: mileage,
+            productionDate: vehicleInfo.productionDate,
+            modelSeries: vehicleInfo.modelSeries,
+            manufacturer: vehicleInfo.manufacturer,
+            modelYear: vehicleInfo.modelYear,
+          );
+        });
+        _saveSettings();
+      }
     }
   }
 
   void _processProductionDateResponse(Uint8List data) {
     if (data.length < 17 || data[13] != 0x62) return;
     Uint8List pld = data.sublist(16);
+    // Usually DD.MM.YYYY or similar
     String date = String.fromCharCodes(pld).trim();
-    setState(() {
-      vehicleInfo = VehicleInfo(
-        vin: vehicleInfo.vin,
-        mileage: vehicleInfo.mileage,
-        productionDate: date,
-        modelSeries: vehicleInfo.modelSeries,
-        manufacturer: vehicleInfo.manufacturer,
-        modelYear: vehicleInfo.modelYear,
-      );
-    });
+    if (mounted) {
+      setState(() {
+        vehicleInfo = VehicleInfo(
+          vin: vehicleInfo.vin,
+          mileage: vehicleInfo.mileage,
+          productionDate: date,
+          modelSeries: vehicleInfo.modelSeries,
+          manufacturer: vehicleInfo.manufacturer,
+          modelYear: vehicleInfo.modelYear,
+        );
+      });
+      _saveSettings();
+    }
   }
 
   // --- DTC (DIAGNOSTIC TROUBLE CODES) FUNCTIONS ---
@@ -1064,7 +1097,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         final addresses = interface.addresses
             .map((addr) => "${addr.address}${addr.type == InternetAddressType.IPv4 ? '' : ' (IPv6)'}")
             .join(', ');
-        logger.log("Aktives Interface: [Name: ${interface.name}, IP: $addresses]", LogType.DATA);
+        logger.log("Aktives Interface: [Name: ${interface.name}, IP: $addresses]", LogType.data);
       }
       
       final localIp = networkInterfaces
@@ -1107,7 +1140,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       } else {
         logger.log("Ping-Check: Nicht erreichbar (exitCode: $exitCode)", LogType.ERROR);
         logger.log("HINWEIS: Hardware physikalisch nicht im Netzwerk gefunden.", LogType.ERROR);
-        logger.log("${pingResult.stdout}", LogType.DATA);
+        logger.log("${pingResult.stdout}", LogType.data);
       }
     } catch (e) {
       logger.log("Ping-Fehler: $e", LogType.ERROR);
@@ -1148,7 +1181,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
     // Only continue if socket is connected
     if (socketConnected) {
-      logger.log("Sende Routing Activation (Hex: ${EnetConstants.routingActivationRequest.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')})", LogType.DATA);
+      logger.log("Sende Routing Activation (Hex: ${EnetConstants.routingActivationRequest.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')})", LogType.data);
 
       // Send DoIP Routing Activation Request
       socket.add(Uint8List.fromList(EnetConstants.routingActivationRequest));
@@ -1170,7 +1203,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           if (!completer.isCompleted) {
             timer.cancel();
 
-            logger.log("Empfangene Hex-Daten: ${data.sublist(0, math.min(20, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}", LogType.DATA);
+            logger.log("Empfangene Hex-Daten: ${data.sublist(0, math.min(20, data.length)).map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')}", LogType.data);
 
             // Check if response starts with expected DoIP routing activation response prefix
             if (data.length >= EnetConstants.routingActivationResponsePrefix.length) {
@@ -1234,8 +1267,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
       return await completer.future;
     }
-    
-    return false;
   }
 
   // --- NETWORK ---
@@ -1471,13 +1502,13 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                         children: [
                                           Padding(
                                             padding: const EdgeInsets.only(bottom: 4),
-                                            child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
-                                          ),
-                                          DropdownButtonFormField<String>(
-                                            value: currentLayout.leftGauge.mainParamId,
-                                            isExpanded: true,
-                                            isDense: true,
-                                            decoration: const InputDecoration(
+                                          child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                        DropdownButtonFormField<String>(
+                                          initialValue: currentLayout.leftGauge.mainParamId,
+                                          isExpanded: true,
+                                          isDense: true,
+                                          decoration: const InputDecoration(
                                               border: OutlineInputBorder(),
                                               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
@@ -1500,7 +1531,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                             child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
                                           DropdownButtonFormField<String?>(
-                                            value: currentLayout.leftGauge.subParamId,
+                                            initialValue: currentLayout.leftGauge.subParamId,
                                             isExpanded: true,
                                             isDense: true,
                                             decoration: const InputDecoration(
@@ -1509,7 +1540,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                             ),
                                             items: [
                                               const DropdownMenuItem(value: null, child: Text("NONE")),
-                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => 
+                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) =>
                                                 DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
                                               )
                                             ],
@@ -1543,14 +1574,14 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                             child: Text("Main Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
                                           DropdownButtonFormField<String>(
-                                            value: currentLayout.rightGauge.mainParamId,
+                                            initialValue: currentLayout.rightGauge.mainParamId,
                                             isExpanded: true,
                                             isDense: true,
                                             decoration: const InputDecoration(
                                               border: OutlineInputBorder(),
                                               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                             ),
-                                            items: DisplayParam.available.map((p) => 
+                                            items: DisplayParam.available.map((p) =>
                                               DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
                                             ).toList(),
                                             onChanged: (id) => setState(() => currentLayout = DashboardLayout(
@@ -1569,7 +1600,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                             child: Text("Sub Parameter:", style: TextStyle(fontWeight: FontWeight.bold)),
                                           ),
                                           DropdownButtonFormField<String?>(
-                                            value: currentLayout.rightGauge.subParamId,
+                                            initialValue: currentLayout.rightGauge.subParamId,
                                             isExpanded: true,
                                             isDense: true,
                                             decoration: const InputDecoration(
@@ -1578,7 +1609,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                             ),
                                             items: [
                                               const DropdownMenuItem(value: null, child: Text("NONE")),
-                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => 
+                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) =>
                                                 DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))
                                               )
                                             ],
@@ -1877,29 +1908,25 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                     children: [
                                       const Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text("Connection Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                        child: Text("Left Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                       ),
-                                      const SizedBox(height: 8),
-                                      TextField(
-                                        decoration: const InputDecoration(
-                                          labelText: "IP Address",
-                                          border: OutlineInputBorder(),
-                                          isDense: true,
-                                        ),
-                                        controller: TextEditingController(text: adapterIp),
-                                        onChanged: (v) => adapterIp = v,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton(
-                                          onPressed: () { 
-                                            Navigator.pop(context); 
-                                            _discoverAdapter(); 
-                                          },
-                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                                          child: const Text("Auto-Discover (UDP)"),
-                                        ),
+                                      const SizedBox(height: 12),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          const Text("Main Parameter:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                          const SizedBox(height: 4),
+                                          DropdownButtonFormField<String>(
+                                            initialValue: currentLayout.leftGauge.mainParamId,
+                                            isExpanded: true,
+                                            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                            items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))).toList(),
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
+                                              rightGauge: currentLayout.rightGauge
+                                            )),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 16),
                                       const Align(
@@ -1922,27 +1949,24 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                         alignment: Alignment.centerLeft,
                                         child: Text("Engine Configuration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                       ),
-                                      const SizedBox(height: 8),
-                                      Row(
+                                      const SizedBox(height: 12),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
                                         children: [
-                                          const Text("Cylinder Count:"),
-                                          const SizedBox(width: 16),
-                                          DropdownButton<int>(
-                                            value: cylinderCount,
-                                            items: [4, 6].map((int value) {
-                                              return DropdownMenuItem<int>(
-                                                value: value,
-                                                child: Text(value.toString()),
-                                              );
-                                            }).toList(),
-                                            onChanged: (int? newValue) {
-                                              if (newValue != null) {
-                                                setState(() {
-                                                  cylinderCount = newValue;
-                                                  cylinderCorrections = List.filled(newValue, 0.0);
-                                                });
-                                              }
-                                            },
+                                          const Text("Sub Parameter:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                          const SizedBox(height: 4),
+                                          DropdownButtonFormField<String?>(
+                                            initialValue: currentLayout.leftGauge.subParamId,
+                                            isExpanded: true,
+                                            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                                            items: [
+                                              const DropdownMenuItem(value: null, child: Text("NONE")),
+                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis)))
+                                            ],
+                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
+                                              leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
+                                              rightGauge: currentLayout.rightGauge
+                                            )),
                                           ),
                                         ],
                                       ),
@@ -2144,8 +2168,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       appBar: AppBar(
         backgroundColor: BimmerdashColors.darkGrayBlue,
         title: Row(children: [
-          Image.asset('assets/mlogo.png', height: 25, errorBuilder: (c, e, s) => const Icon(Icons.drive_eta)),
-          const SizedBox(width: 8),
           // Compact connection status indicator
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2173,19 +2195,17 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(carModel, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue)),
-                if (vinDisplay.isNotEmpty)
-                  Text(vinDisplay, style: const TextStyle(fontSize: 10, color: Colors.white24)),
-              ],
-            ),
-          ),
         ]),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.favorite),
+            tooltip: "Vehicle Health",
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => VehicleHealthPage(
+              info: vehicleInfo, 
+              isConnected: isConnected,
+              onUpdate: () => _requestVehicleIdentification(),
+            ))),
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _showSettings,
@@ -2397,7 +2417,7 @@ class GaugePainter extends CustomPainter {
 
     // Red Zone
     if (showRedZone && max > 100) {
-      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: radius - 8), (math.pi * 0.85) + ((120 - min) / (max - min) * math.pi * 1.3), ((max - 120) / (max - min) * math.pi * 1.3), false, Paint()..color = const Color(0xFFCE1237).withValues(alpha: 0.8)..style = PaintingStyle.stroke..strokeWidth = 3);
     }
 
     // Outer Glow Effect - Modern Performance Theme
@@ -2405,7 +2425,7 @@ class GaugePainter extends CustomPainter {
     if (normalizedValue > 0.5) { // Glow effect when value is above 50%
       final glowIntensity = (normalizedValue - 0.5) * 2.0; // 0.0 to 1.0 intensity
       final outerGlowPaint = Paint()
-        ..color = BimmerdashColors.modernAccentOrange.withOpacity(0.1 * glowIntensity)
+        ..color = BimmerdashColors.modernAccentOrange.withValues(alpha: 0.1 * glowIntensity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 15 * glowIntensity
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 * glowIntensity);
@@ -2418,7 +2438,7 @@ class GaugePainter extends CustomPainter {
 
     // Glow effect for main needle (BMW Orange)
     final glowPaint = Paint()
-      ..color = BimmerdashColors.bmwOrange.withOpacity(0.8)
+      ..color = BimmerdashColors.bmwOrange.withValues(alpha: 0.8)
       ..strokeWidth = 8
       ..strokeCap = StrokeCap.round
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6);
@@ -2444,7 +2464,7 @@ class GaugePainter extends CustomPainter {
         canvas.drawLine(Offset(center.dx + tickStartRadius * math.cos(tickAngle), center.dy + tickStartRadius * math.sin(tickAngle)), Offset(center.dx + tickEndRadius * math.cos(tickAngle), center.dy + tickEndRadius * math.sin(tickAngle)), tickPaint);
       }
 
-      final trackPaint = Paint()..color = Colors.grey[800]!.withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = radius * 0.06..strokeCap = StrokeCap.round;
+      final trackPaint = Paint()..color = Colors.grey[800]!.withValues(alpha: 0.8)..style = PaintingStyle.stroke..strokeWidth = radius * 0.06..strokeCap = StrokeCap.round;
       canvas.drawArc(Rect.fromCircle(center: center, radius: secondaryArcRadius), startAngle, sweepAngle, false, trackPaint);
 
       final progressPaint = Paint()..color = const Color(0xFF0066B1)..style = PaintingStyle.stroke..strokeWidth = radius * 0.06..strokeCap = StrokeCap.round..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
@@ -2456,4 +2476,145 @@ class GaugePainter extends CustomPainter {
     canvas.drawCircle(center, radius * 0.08, Paint()..color = const Color(0xFF333333));
   }
   @override bool shouldRepaint(covariant GaugePainter old) => true;
+}
+
+/// A dedicated page for vehicle identification and health summary.
+class VehicleHealthPage extends StatelessWidget {
+  final VehicleInfo info;
+  final bool isConnected;
+  final VoidCallback onUpdate;
+
+  const VehicleHealthPage({
+    super.key,
+    required this.info,
+    required this.isConnected,
+    required this.onUpdate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: BimmerdashColors.modernDeepBlue,
+      appBar: AppBar(
+        title: const Text("VEHICLE HEALTH"),
+        backgroundColor: BimmerdashColors.darkGrayBlue,
+        actions: [
+          if (isConnected)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: "Daten aktualisieren",
+              onPressed: onUpdate,
+            ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Header Card (Profile)
+            _buildHeaderCard(),
+            const SizedBox(height: 20),
+            // Diagnostic Grid
+            _buildDataGrid(),
+            const SizedBox(height: 30),
+            if (isConnected)
+              ElevatedButton.icon(
+                onPressed: onUpdate,
+                icon: const Icon(Icons.update),
+                label: const Text("NEU EINLESEN"),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: BimmerdashColors.bmwOrange,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard() {
+    String title = info.modelSeries;
+    if (info.modelYear > 0) {
+      title += " (${info.modelYear})";
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.directions_car, color: BimmerdashColors.bmwOrange, size: 32),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        info.manufacturer,
+                        style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 30),
+            const Text(
+              "FAHRZEUG-STECKBRIEF",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: BimmerdashColors.bmwOrange),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDataGrid() {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.5,
+      children: [
+        _buildInfoTile("KILOMETERSTAND", "${info.mileage} km", Icons.speed),
+        _buildInfoTile("PRODUKTION", info.productionDate.isEmpty ? "Unbekannt" : info.productionDate, Icons.calendar_today),
+        _buildInfoTile("VIN (KURZ)", info.shortVin, Icons.vpn_key),
+        _buildInfoTile("MODELLJAHR", info.modelYear > 0 ? info.modelYear.toString() : "N/A", Icons.history),
+      ],
+    );
+  }
+
+  Widget _buildInfoTile(String label, String value, IconData icon) {
+    return Card(
+      color: Colors.white.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 14, color: Colors.grey),
+                const SizedBox(width: 5),
+                Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.white70)),
+          ],
+        ),
+      ),
+    );
+  }
 }

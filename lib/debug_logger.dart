@@ -6,7 +6,7 @@ enum LogType {
   INFO,    // Blue
   SUCCESS, // Green
   ERROR,   // Red
-  DATA     // Yellow for Hex values
+  data     // Yellow for Hex values
 }
 
 /// Debug Logger Service (Singleton)
@@ -63,7 +63,7 @@ class DebugLogger {
         return Colors.green;
       case LogType.ERROR:
         return Colors.red;
-      case LogType.DATA:
+      case LogType.data:
         return Colors.yellow;
       default:
         return Colors.white;
@@ -79,7 +79,7 @@ class DebugLogger {
         return 'SUCCESS';
       case LogType.ERROR:
         return 'ERROR';
-      case LogType.DATA:
+      case LogType.data:
         return 'DATA';
       default:
         return 'LOG';
