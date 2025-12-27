@@ -1220,40 +1220,92 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     }
     
     // Log that we're moving to the next step
-    logger.log("Stufe 2: TCP Socket-Verbindungstest (${pingSuccessful ? 'nach erfolgreicher Ping' : 'trotz fehlgeschlagenem Ping'})...", LogType.INFO);
+    logger.log("Stufe 2: UDP Discovery (Wake-up) (${pingSuccessful ? 'nach erfolgreicher Ping' : 'trotz fehlgeschlagenem Ping'})...", LogType.INFO);
 
-    // Stufe 2: Socket connection test
+    // Stufe 2: UDP Discovery
+    try {
+      logger.log("Sende UDP DoIP Discovery...", LogType.INFO);
+
+      // Create a raw datagram socket for UDP broadcast
+      final udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      udpSocket.broadcastEnabled = true;
+
+      // Vehicle Identification Request payload
+      final udpPayload = Uint8List.fromList([0x02, 0xFD, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+      // Send broadcast to 255.255.255.255 on port 13400
+      udpSocket.send(udpPayload, InternetAddress("255.255.255.255"), 13400);
+      logger.log("UDP Discovery gesendet - warte 500ms...", LogType.INFO);
+
+      // Wait 500ms for adapter to route TCP stack internally
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      udpSocket.close();
+      logger.log("UDP Discovery abgeschlossen", LogType.SUCCESS);
+    } catch (e) {
+      logger.log("UDP Discovery fehlgeschlagen: $e", LogType.ERROR);
+      // Continue even if UDP fails - it's just a wakeup trigger
+    }
+
+    logger.log("Stufe 3: TCP Socket-Verbindungstest...", LogType.INFO);
+
+    // Stufe 3: Socket connection test with retry logic
     bool socketConnected = false;
     Socket? socket;
-    
-    try {
-      logger.log("Versuche TCP-Connect zu $adapterIp:$doipPort...", LogType.INFO);
-      socket = await Socket.connect(
-        adapterIp, 
-        doipPort, 
-        timeout: const Duration(seconds: 3)
-      );
-      logger.log("SUCCESS: Socket-Ebene verbunden!", LogType.SUCCESS);
-      socketConnected = true;
-    } on SocketException catch (e) {
-      logger.log("ERROR (Socket): ${e.message}", LogType.ERROR);
-      if (e.osError != null) {
-        logger.log("Fehlercode: ${e.osError!.errorCode} - ${e.osError!.message}", LogType.ERROR);
+    int retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries && !socketConnected) {
+      try {
+        logger.log("TCP-Verbindungsversuch ${retryCount + 1}/$maxRetries...", LogType.INFO);
+        socket = await Socket.connect(
+          adapterIp,
+          doipPort,
+          timeout: const Duration(seconds: 3)
+        );
+        // Set tcpNoDelay to true for immediate packet sending
+        socket.setOption(SocketOption.tcpNoDelay, true);
+        logger.log("SUCCESS: Socket-Ebene verbunden!", LogType.SUCCESS);
+        socketConnected = true;
+      } on SocketException catch (e) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          logger.log("Retry [$retryCount] nach Connection Refused...", LogType.INFO);
+          await Future.delayed(const Duration(seconds: 1));
+        } else {
+          logger.log("Maximale Wiederholungen erreicht. Verbindung fehlgeschlagen.", LogType.ERROR);
+          logger.log("ERROR (Socket): ${e.message}", LogType.ERROR);
+          if (e.osError != null) {
+            logger.log("Fehlercode: ${e.osError!.errorCode} - ${e.osError!.message}", LogType.ERROR);
+          }
+          logger.log("HINWEIS: Ist das Handy im ENET_WIFI?", LogType.INFO);
+          return false;
+        }
+      } on TimeoutException {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          logger.log("Retry [$retryCount] nach Timeout...", LogType.INFO);
+          await Future.delayed(const Duration(seconds: 1));
+        } else {
+          logger.log("ERROR: Zeitüberschreitung nach 3 Sekunden. Adapter antwortet nicht.", LogType.ERROR);
+          return false;
+        }
+      } catch (e) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          logger.log("Retry [$retryCount] nach Connection Refused...", LogType.INFO);
+          await Future.delayed(const Duration(seconds: 1));
+        } else {
+          logger.log("UNBEKANNTER FEHLER: $e", LogType.ERROR);
+          return false;
+        }
       }
-      logger.log("HINWEIS: Ist das Handy im ENET_WIFI?", LogType.INFO);
-      return false;
-    } on TimeoutException {
-      logger.log("ERROR: Zeitüberschreitung nach 3 Sekunden. Adapter antwortet nicht.", LogType.ERROR);
-      return false;
-    } catch (e) {
-      logger.log("UNBEKANNTER FEHLER: $e", LogType.ERROR);
-      return false;
     }
-    
-    logger.log("Stufe 3: DoIP Routing Activation Test...", LogType.INFO);
+
+    logger.log("Stufe 4: DoIP Routing Activation Test...", LogType.INFO);
 
     // Only continue if socket is connected
-    if (socketConnected) {
+    if (socketConnected && socket != null) {
       logger.log("Sende Routing Activation (Hex: ${EnetConstants.routingActivationRequest.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ')})", LogType.data);
 
       // Send DoIP Routing Activation Request
@@ -1339,6 +1391,9 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       );
 
       return await completer.future;
+    } else {
+      logger.log("Socket-Verbindung fehlgeschlagen - Routing Activation nicht möglich", LogType.ERROR);
+      return false;
     }
   }
 
