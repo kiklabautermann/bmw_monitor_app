@@ -1985,29 +1985,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                     children: [
                                       const Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text("Left Gauge", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                                        children: [
-                                          const Text("Main Parameter:", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                                          const SizedBox(height: 4),
-                                          DropdownButtonFormField<String>(
-                                            initialValue: currentLayout.leftGauge.mainParamId,
-                                            isExpanded: true,
-                                            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                            items: DisplayParam.available.map((p) => DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis))).toList(),
-                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                              leftGauge: GaugeConfig(mainParamId: id ?? 'boost', subParamId: currentLayout.leftGauge.subParamId),
-                                              rightGauge: currentLayout.rightGauge
-                                            )),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      const Align(
-                                        alignment: Alignment.centerLeft,
                                         child: Text("Battery Saver", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                       ),
                                       const SizedBox(height: 8),
@@ -2030,20 +2007,24 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                                       Column(
                                         crossAxisAlignment: CrossAxisAlignment.stretch,
                                         children: [
-                                          const Text("Sub Parameter:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                          const Text("Cylinder Count:", style: TextStyle(fontSize: 12, color: Colors.grey)),
                                           const SizedBox(height: 4),
-                                          DropdownButtonFormField<String?>(
-                                            initialValue: currentLayout.leftGauge.subParamId,
-                                            isExpanded: true,
+                                          DropdownButtonFormField<int>(
+                                            initialValue: cylinderCount,
                                             decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                            items: [
-                                              const DropdownMenuItem(value: null, child: Text("NONE")),
-                                              ...DisplayParam.available.where((p) => p.id != 'none').map((p) => DropdownMenuItem(value: p.id, child: Text(p.label, overflow: TextOverflow.ellipsis)))
+                                            items: const [
+                                              DropdownMenuItem(value: 4, child: Text("4-Zylinder")),
+                                              DropdownMenuItem(value: 6, child: Text("6-Zylinder")),
                                             ],
-                                            onChanged: (id) => setState(() => currentLayout = DashboardLayout(
-                                              leftGauge: GaugeConfig(mainParamId: currentLayout.leftGauge.mainParamId, subParamId: id),
-                                              rightGauge: currentLayout.rightGauge
-                                            )),
+                                            onChanged: (val) {
+                                              if (val != null) {
+                                                setState(() {
+                                                  cylinderCount = val;
+                                                  cylinderCorrections = List.filled(val, 0.0);
+                                                });
+                                                _saveSettings();
+                                              }
+                                            },
                                           ),
                                         ],
                                       ),
